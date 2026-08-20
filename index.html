@@ -728,6 +728,9 @@
       const INITIAL_PRELOAD_COUNT = USE_LIGHTWEIGHT_FRAMES ? 65 : IS_MOBILE ? 32 : 25;
       const WARM_RADIUS = IS_MOBILE ? (USE_LIGHTWEIGHT_FRAMES ? 7 : 24) : 12;
       const WARM_TRIGGER_DISTANCE = IS_MOBILE ? 12 : 8;
+      const SCRUB_PREDICT_LEAD_MS = 300;
+      const SCRUB_FORECAST_INTERVAL_MS = 64;
+      const MAX_SCRUB_FORECASTS = IS_MOBILE ? 3 : 4;
       const HARD_CUT_FRAMES = [94, 146, 270];
       const SCRUB_CUT_OPACITY = 0.72;
       const SCRUB_CUT_FADE_MS = 220;
@@ -781,6 +784,10 @@
       let scrubRendering = false;
       let scrubIdleTimer = 0;
       let warmTimer = 0;
+      let lastScrubInputAt = 0;
+      let scrubVelocity = 0;
+      let lastForecastAt = 0;
+      let lastForecastFrame = null;
       let cutVeilRaf = 0;
       let dragPointerId = null;
       let dragLastY = 0;
@@ -847,14 +854,15 @@
         }
       }
 
-      function trimCache(center = state.frame) {
+      function trimCache(center = state.frame, protectedFrame = null) {
         const behind = state.direction > 0 ? CACHE_SHORT_SIDE : CACHE_LONG_SIDE;
         const ahead = state.direction > 0 ? CACHE_LONG_SIDE : CACHE_SHORT_SIDE;
         const min = Math.max(0, center - behind);
         const max = Math.min(LAST_FRAME, center + ahead);
 
         for (const [index, entry] of cache) {
-          const keep = pinned.has(index) || index === state.requestedFrame || (index >= min && index <= max);
+          const keep = pinned.has(index) || index === state.requestedFrame || index === protectedFrame ||
+            (index >= min && index <= max);
           if (!keep) {
             if (entry.disposable && typeof entry.drawable.close === "function") entry.drawable.close();
             cache.delete(index);
@@ -935,7 +943,7 @@
           .then((entry) => {
             cache.set(frame, entry);
             inflight.delete(frame);
-            trimCache(cacheIntentCenter());
+            trimCache(cacheIntentCenter(), frame);
             return entry;
           })
           .catch((error) => {
@@ -949,7 +957,7 @@
       function cancelObsoleteScrubDecodes(latestFrame) {
         for (let index = decodeQueue.length - 1; index >= 0; index -= 1) {
           const task = decodeQueue[index];
-          const obsolete = task.purpose === "scrub" || task.purpose === "background";
+          const obsolete = task.purpose === "scrub" || task.purpose === "forecast" || task.purpose === "background";
           if (!obsolete || task.frame === latestFrame) continue;
           decodeQueue.splice(index, 1);
           queuedDecodes.delete(task.frame);
@@ -961,10 +969,21 @@
           if (task.frame === latestFrame) {
             task.priority = Math.max(task.priority, 2);
             task.purpose = "scrub";
-          } else if (task.purpose === "scrub" || task.purpose === "background") {
+          } else if (task.purpose === "scrub" || task.purpose === "forecast" || task.purpose === "background") {
             task.controller.abort();
           }
         }
+      }
+
+      function activeForecastCount() {
+        let total = 0;
+        for (const task of decodeQueue) {
+          if (task.purpose === "forecast") total += 1;
+        }
+        for (const task of activeDecodeTasks.values()) {
+          if (task.purpose === "forecast") total += 1;
+        }
+        return total;
       }
 
       function windowFrames(center, direction, radius = 20) {
@@ -1014,17 +1033,27 @@
         document.documentElement.style.setProperty("--progress", progress.toFixed(4));
       }
 
-      async function renderFrame(index, force = false, scrubEpoch = null) {
-        const frame = clamp(Math.round(index), 0, LAST_FRAME);
-        state.requestedFrame = frame;
-        const entry = await loadFrame(frame, 2, scrubEpoch === null ? "general" : "scrub");
-        if (scrubEpoch !== null && scrubEpoch !== state.scrubEpoch) return false;
-        if (!force && state.requestedFrame !== frame) return false;
+      function commitFrame(frame, entry) {
         drawEntry(entry.drawable);
         state.frame = frame;
         canvas.dataset.frame = String(frame);
         updateProgress(frame);
         trimCache(cacheIntentCenter());
+      }
+
+      async function renderFrame(index, force = false, scrubEpoch = null) {
+        const frame = clamp(Math.round(index), 0, LAST_FRAME);
+        state.requestedFrame = frame;
+        const entry = await loadFrame(frame, 2, scrubEpoch === null ? "general" : "scrub");
+        if (scrubEpoch !== null && scrubEpoch !== state.scrubEpoch) {
+          trimCache(cacheIntentCenter());
+          return false;
+        }
+        if (!force && state.requestedFrame !== frame) {
+          trimCache(cacheIntentCenter());
+          return false;
+        }
+        commitFrame(frame, entry);
         return true;
       }
 
@@ -1074,10 +1103,67 @@
         });
       }
 
+      function commitBestCachedScrubFrame() {
+        const target = Math.round(state.scrubFrame);
+        const direction = Math.sign(target - state.frame) || state.direction;
+        let candidate = null;
+
+        if (cache.has(target)) {
+          candidate = target;
+        } else {
+          for (const frame of cache.keys()) {
+            const advances = direction > 0
+              ? frame > state.frame && frame <= target
+              : frame < state.frame && frame >= target;
+            if (!advances) continue;
+            if (candidate === null || Math.abs(target - frame) < Math.abs(target - candidate)) candidate = frame;
+          }
+        }
+
+        if (candidate === null || candidate === state.frame) return false;
+        const from = state.frame;
+        commitFrame(candidate, cache.get(candidate));
+        if (crossedHardCut(from, candidate)) pulseCutVeil();
+        syncStationToFrame(candidate);
+        return true;
+      }
+
+      function requestScrubForecast(now) {
+        if (Math.abs(scrubVelocity) < 0.01 || now - lastForecastAt < SCRUB_FORECAST_INTERVAL_MS) return;
+        if (activeForecastCount() >= MAX_SCRUB_FORECASTS) return;
+
+        const direction = Math.sign(scrubVelocity) || state.direction;
+        const maxLead = Math.max(1, CACHE_LONG_SIDE - 2);
+        const lead = clamp(Math.abs(scrubVelocity) * SCRUB_PREDICT_LEAD_MS, 4, maxLead);
+        const forecast = clamp(Math.round(state.scrubFrame + direction * lead), 0, LAST_FRAME);
+        if (forecast === lastForecastFrame || cache.has(forecast) || inflight.has(forecast)) return;
+
+        lastForecastAt = now;
+        lastForecastFrame = forecast;
+        const scrubEpoch = state.scrubEpoch;
+        void loadFrame(forecast, 2, "forecast")
+          .then(() => {
+            if (scrubEpoch === state.scrubEpoch && document.body.classList.contains("is-scrubbing")) {
+              commitBestCachedScrubFrame();
+            }
+          })
+          .catch((error) => {
+            if (!isAbortError(error)) console.error(error);
+          })
+          .finally(() => trimCache(cacheIntentCenter()));
+      }
+
       function scheduleScrubRender() {
-        if (scrubRendering || state.playing || !state.entered) return;
+        if (state.playing || !state.entered) return;
         const target = Math.round(state.scrubFrame);
         if (target === state.frame) return;
+
+        if (document.body.classList.contains("is-scrubbing")) {
+          commitBestCachedScrubFrame();
+          return;
+        }
+
+        if (scrubRendering) return;
 
         const from = state.frame;
         const direction = Math.sign(target - from) || state.direction;
@@ -1105,6 +1191,10 @@
       function settleScrubIntent() {
         window.clearTimeout(scrubIdleTimer);
         document.body.classList.remove("is-scrubbing");
+        lastScrubInputAt = 0;
+        scrubVelocity = 0;
+        lastForecastAt = 0;
+        lastForecastFrame = null;
         state.scrubEpoch += 1;
         cancelObsoleteScrubDecodes(Math.round(state.scrubFrame));
         scheduleScrubRender();
@@ -1112,13 +1202,27 @@
 
       function scrubBy(frameDelta) {
         if (!state.entered || state.playing || !Number.isFinite(frameDelta)) return;
+        const now = performance.now();
+        const startingScrub = !document.body.classList.contains("is-scrubbing");
         const inputDirection = Math.sign(frameDelta);
         const directionChanged = inputDirection !== 0 && inputDirection !== state.direction;
-        if (directionChanged) state.scrubEpoch += 1;
+        if (startingScrub || directionChanged) {
+          state.scrubEpoch += 1;
+          lastScrubInputAt = 0;
+          scrubVelocity = 0;
+          lastForecastAt = 0;
+          lastForecastFrame = null;
+        }
+        const elapsed = lastScrubInputAt > 0 ? clamp(now - lastScrubInputAt, 8, 80) : 32;
+        const instantVelocity = frameDelta / elapsed;
+        scrubVelocity = lastScrubInputAt > 0
+          ? scrubVelocity * 0.62 + instantVelocity * 0.38
+          : instantVelocity;
+        lastScrubInputAt = now;
         state.scrubFrame = clamp(state.scrubFrame + frameDelta, 0, LAST_FRAME);
         const nextTarget = Math.round(state.scrubFrame);
         if (inputDirection !== 0) state.direction = inputDirection;
-        if (directionChanged) cancelObsoleteScrubDecodes(nextTarget);
+        if (startingScrub || directionChanged) cancelObsoleteScrubDecodes(nextTarget);
         document.body.classList.add("is-scrubbing");
         window.clearTimeout(scrubIdleTimer);
         window.clearTimeout(warmTimer);
@@ -1129,6 +1233,7 @@
           }
         }, 220);
         scheduleScrubRender();
+        requestScrubForecast(now);
       }
 
       function beginAudio(fromFrame, direction) {
