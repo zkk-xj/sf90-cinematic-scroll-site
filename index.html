@@ -1,0 +1,1263 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#070707">
+  <meta name="description" content="Ferrari SF90 Stradale — a cinematic, scroll-scrubbed experience.">
+  <link rel="icon" href="data:,">
+  <title>SF90 Stradale — Beyond Performance</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #070707;
+      --ink: #f4f1eb;
+      --muted: rgba(244, 241, 235, 0.58);
+      --line: rgba(255, 255, 255, 0.18);
+      --red: #f20d22;
+      --progress: 0;
+    }
+
+    * { box-sizing: border-box; }
+
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: var(--bg);
+    }
+
+    body {
+      color: var(--ink);
+      font-family: Arial, "Helvetica Neue", "Segoe UI", "Microsoft YaHei", sans-serif;
+      -webkit-font-smoothing: antialiased;
+      user-select: none;
+      overscroll-behavior: none;
+    }
+
+    button { font: inherit; }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    #fallback,
+    #stage,
+    .grade,
+    #cut-veil {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    #fallback {
+      z-index: 0;
+      object-fit: cover;
+      background: #050505;
+      transition: opacity 500ms ease;
+    }
+
+    #fallback.is-hidden { opacity: 0; }
+
+    #stage {
+      z-index: 1;
+      display: block;
+      opacity: 0;
+      cursor: ns-resize;
+      transition: opacity 500ms ease;
+    }
+
+    #stage.is-ready { opacity: 1; }
+
+    body.is-entered { cursor: ns-resize; }
+
+    body.is-dragging,
+    body.is-dragging #stage { cursor: grabbing; }
+
+    .grade {
+      z-index: 2;
+      pointer-events: none;
+      background:
+        linear-gradient(90deg, rgba(0, 0, 0, 0.56) 0%, rgba(0, 0, 0, 0.16) 38%, rgba(0, 0, 0, 0.02) 68%),
+        linear-gradient(180deg, rgba(0, 0, 0, 0.38) 0%, transparent 28%, transparent 67%, rgba(0, 0, 0, 0.52) 100%),
+        radial-gradient(circle at 52% 48%, transparent 38%, rgba(0, 0, 0, 0.26) 100%);
+    }
+
+    #cut-veil {
+      z-index: 4;
+      pointer-events: none;
+      opacity: 0;
+      background: #020202;
+    }
+
+    .site-header {
+      position: fixed;
+      z-index: 8;
+      top: 0;
+      left: 0;
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: max(24px, env(safe-area-inset-top)) clamp(24px, 4vw, 68px) 0;
+      pointer-events: none;
+    }
+
+    .wordmark {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    .wordmark__model {
+      position: relative;
+      font-family: "Arial Narrow", Arial, sans-serif;
+      font-size: 20px;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+    }
+
+    .wordmark__model::after {
+      content: "";
+      position: absolute;
+      right: -7px;
+      bottom: 0;
+      width: 3px;
+      height: 16px;
+      background: var(--red);
+      transform: skewX(-14deg);
+    }
+
+    .wordmark__series {
+      color: var(--muted);
+      font-size: 9px;
+      font-weight: 600;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      pointer-events: auto;
+    }
+
+    .sound-toggle {
+      min-width: 106px;
+      padding: 10px 13px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--ink);
+      background: rgba(0, 0, 0, 0.22);
+      backdrop-filter: blur(10px);
+      cursor: pointer;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      transition: border-color 180ms ease, background 180ms ease;
+    }
+
+    .sound-toggle:hover,
+    .sound-toggle:focus-visible {
+      border-color: rgba(255, 255, 255, 0.48);
+      background: rgba(255, 255, 255, 0.08);
+      outline: none;
+    }
+
+    .sound-toggle[aria-pressed="true"]::before {
+      content: "";
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      margin-right: 8px;
+      border-radius: 50%;
+      background: var(--red);
+      box-shadow: 0 0 12px rgba(242, 13, 34, 0.8);
+    }
+
+    #chapters {
+      position: fixed;
+      z-index: 6;
+      inset: 0;
+      pointer-events: none;
+    }
+
+    .chapter {
+      position: absolute;
+      top: clamp(130px, 20vh, 220px);
+      left: clamp(24px, 7vw, 118px);
+      width: min(760px, 66vw);
+      opacity: 0;
+      transform: translateY(24px);
+      transition: opacity 620ms cubic-bezier(0.22, 1, 0.36, 1), transform 620ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .chapter.is-active {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    body.is-playing .chapter {
+      opacity: 0;
+      transform: translateY(-14px);
+      transition-duration: 260ms;
+    }
+
+    body.is-scrubbing .chapter { transition-duration: 180ms; }
+
+    body.is-scrubbing .rail::after { transition-duration: 40ms; }
+
+    .chapter__eyebrow {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin: 0 0 16px;
+      color: rgba(255, 255, 255, 0.68);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.26em;
+      text-transform: uppercase;
+    }
+
+    .chapter__eyebrow::before {
+      content: "";
+      width: 36px;
+      height: 2px;
+      background: var(--red);
+      box-shadow: 0 0 14px rgba(242, 13, 34, 0.72);
+    }
+
+    .chapter__title {
+      max-width: 900px;
+      margin: 0;
+      font-family: "Arial Narrow", Arial, sans-serif;
+      font-size: clamp(48px, 7.1vw, 126px);
+      font-stretch: condensed;
+      font-weight: 800;
+      letter-spacing: -0.065em;
+      line-height: 0.82;
+      text-transform: uppercase;
+      text-wrap: balance;
+      text-shadow: 0 10px 42px rgba(0, 0, 0, 0.7);
+    }
+
+    .chapter__cn {
+      margin: 22px 0 0;
+      color: rgba(255, 255, 255, 0.82);
+      font-size: clamp(13px, 1.2vw, 18px);
+      font-weight: 400;
+      letter-spacing: 0.18em;
+    }
+
+    .chapter__detail {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 17px;
+      color: var(--muted);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+    }
+
+    .chapter__detail span + span::before {
+      content: "·";
+      margin-right: 12px;
+      color: var(--red);
+    }
+
+    .chapter--outro {
+      top: auto;
+      bottom: clamp(98px, 14vh, 150px);
+      width: min(640px, 68vw);
+      pointer-events: none;
+    }
+
+    .chapter--outro .chapter__title {
+      font-size: clamp(60px, 8.2vw, 144px);
+    }
+
+    .replay {
+      display: inline-flex;
+      align-items: center;
+      gap: 13px;
+      margin-top: 28px;
+      padding: 0 0 8px;
+      border: 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.4);
+      color: var(--ink);
+      background: transparent;
+      cursor: pointer;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      pointer-events: auto;
+    }
+
+    .replay::after {
+      content: "↺";
+      color: var(--red);
+      font-size: 15px;
+      transition: transform 220ms ease;
+    }
+
+    .replay:hover::after { transform: rotate(-70deg); }
+
+    .rail {
+      position: fixed;
+      z-index: 8;
+      top: 50%;
+      right: clamp(20px, 3.3vw, 58px);
+      display: grid;
+      gap: 17px;
+      transform: translateY(-50%);
+    }
+
+    .rail::before,
+    .rail::after {
+      content: "";
+      position: absolute;
+      top: 22px;
+      right: 5px;
+      width: 1px;
+      height: calc(100% - 44px);
+      background: rgba(255, 255, 255, 0.14);
+      z-index: -2;
+    }
+
+    .rail::after {
+      height: calc((100% - 44px) * var(--progress));
+      background: var(--red);
+      box-shadow: 0 0 12px rgba(242, 13, 34, 0.8);
+      z-index: -1;
+      transition: height 120ms linear;
+    }
+
+    .rail__item {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 10px;
+      width: 64px;
+      min-height: 44px;
+      padding: 0;
+      border: 0;
+      color: rgba(255, 255, 255, 0.42);
+      background: transparent;
+      cursor: pointer;
+      touch-action: manipulation;
+    }
+
+    .rail__label {
+      opacity: 0;
+      transform: translateX(8px);
+      font-size: 8px;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      transition: opacity 160ms ease, transform 160ms ease;
+    }
+
+    .rail__dot {
+      width: 11px;
+      height: 11px;
+      border: 1px solid rgba(255, 255, 255, 0.42);
+      border-radius: 50%;
+      background: #080808;
+      transition: border-color 180ms ease, background 180ms ease, transform 180ms ease;
+    }
+
+    .rail__item:hover .rail__label,
+    .rail__item:focus-visible .rail__label,
+    .rail__item.is-active .rail__label {
+      opacity: 1;
+      transform: translateX(0);
+    }
+
+    .rail__item.is-active { color: var(--ink); }
+
+    .rail__item.is-active .rail__dot {
+      border-color: var(--red);
+      background: var(--red);
+      box-shadow: 0 0 14px rgba(242, 13, 34, 0.72);
+      transform: scale(0.76);
+    }
+
+    .interaction-hint {
+      position: fixed;
+      z-index: 8;
+      left: clamp(24px, 4vw, 68px);
+      bottom: max(25px, env(safe-area-inset-bottom));
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      color: rgba(255, 255, 255, 0.46);
+      font-size: 8px;
+      font-weight: 700;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      transition: opacity 220ms ease;
+    }
+
+    body.is-playing .interaction-hint { opacity: 0; }
+
+    .interaction-hint__mouse {
+      position: relative;
+      width: 18px;
+      height: 28px;
+      border: 1px solid rgba(255, 255, 255, 0.5);
+      border-radius: 10px;
+    }
+
+    .interaction-hint__mouse::after {
+      content: "";
+      position: absolute;
+      top: 6px;
+      left: 50%;
+      width: 2px;
+      height: 5px;
+      border-radius: 1px;
+      background: var(--red);
+      transform: translateX(-50%);
+      animation: scroll-cue 1.6s ease-in-out infinite;
+    }
+
+    .status {
+      position: fixed;
+      z-index: 8;
+      right: clamp(24px, 4vw, 68px);
+      bottom: max(25px, env(safe-area-inset-bottom));
+      color: rgba(255, 255, 255, 0.36);
+      font-size: 8px;
+      font-weight: 700;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+    }
+
+    .loading-screen {
+      position: fixed;
+      z-index: 20;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      padding: 28px;
+      background:
+        radial-gradient(circle at 50% 56%, rgba(82, 0, 8, 0.28), transparent 42%),
+        #050505;
+      transition: opacity 650ms ease, visibility 650ms ease;
+    }
+
+    .loading-screen.is-hidden {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+
+    .loading-panel {
+      width: min(440px, 88vw);
+      text-align: center;
+    }
+
+    .loading-kicker {
+      margin: 0 0 18px;
+      color: var(--red);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.32em;
+      text-transform: uppercase;
+    }
+
+    .loading-title {
+      margin: 0;
+      font-family: "Arial Narrow", Arial, sans-serif;
+      font-size: clamp(54px, 10vw, 100px);
+      font-weight: 800;
+      letter-spacing: -0.07em;
+      line-height: 0.82;
+      text-transform: uppercase;
+    }
+
+    .loading-subtitle {
+      margin: 18px 0 32px;
+      color: var(--muted);
+      font-size: 10px;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+    }
+
+    .loading-track {
+      position: relative;
+      height: 1px;
+      overflow: hidden;
+      background: rgba(255, 255, 255, 0.18);
+    }
+
+    .loading-fill {
+      width: 0;
+      height: 100%;
+      background: var(--red);
+      box-shadow: 0 0 12px rgba(242, 13, 34, 0.8);
+      transition: width 180ms ease;
+    }
+
+    .loading-meta {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 11px;
+      color: rgba(255, 255, 255, 0.4);
+      font-size: 8px;
+      font-weight: 700;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    .enter-button {
+      margin-top: 30px;
+      padding: 13px 18px;
+      border: 1px solid rgba(255, 255, 255, 0.34);
+      border-radius: 999px;
+      color: var(--ink);
+      background: transparent;
+      cursor: pointer;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      transition: background 180ms ease, color 180ms ease, border-color 180ms ease;
+    }
+
+    .enter-button:disabled {
+      cursor: wait;
+      color: rgba(255, 255, 255, 0.34);
+    }
+
+    .enter-button:not(:disabled):hover,
+    .enter-button:not(:disabled):focus-visible {
+      color: #050505;
+      background: var(--ink);
+      border-color: var(--ink);
+      outline: none;
+    }
+
+    @keyframes scroll-cue {
+      0%, 100% { opacity: 0.2; transform: translate(-50%, 0); }
+      45% { opacity: 1; }
+      80% { opacity: 0; transform: translate(-50%, 8px); }
+    }
+
+    @media (max-width: 760px) {
+      #fallback { object-fit: contain; }
+
+      .grade {
+        background:
+          linear-gradient(180deg, rgba(0, 0, 0, 0.24) 0%, transparent 30%, rgba(0, 0, 0, 0.18) 52%, rgba(0, 0, 0, 0.78) 100%),
+          radial-gradient(circle at 50% 42%, transparent 30%, rgba(0, 0, 0, 0.32) 100%);
+      }
+
+      .site-header { padding-inline: 20px; }
+      .wordmark__series { display: none; }
+      .sound-toggle { min-width: auto; padding-inline: 12px; }
+
+      .chapter,
+      .chapter--outro {
+        top: auto;
+        bottom: max(88px, calc(env(safe-area-inset-bottom) + 72px));
+        left: 20px;
+        width: calc(100vw - 62px);
+      }
+
+      .chapter__title {
+        max-width: 90vw;
+        font-size: clamp(42px, 14vw, 72px);
+        line-height: 0.88;
+      }
+
+      .chapter__cn { margin-top: 14px; letter-spacing: 0.1em; }
+      .chapter__detail { display: none; }
+      .rail { right: 17px; }
+      .rail__label { display: none; }
+      .interaction-hint { left: 20px; bottom: max(19px, env(safe-area-inset-bottom)); }
+      .interaction-hint__copy { display: none; }
+      .status { right: 20px; bottom: max(20px, env(safe-area-inset-bottom)); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        scroll-behavior: auto !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <h1 class="sr-only">Ferrari SF90 Stradale cinematic experience</h1>
+
+  <img id="fallback" src="assets/reference/station_01.png" alt="">
+  <canvas id="stage" aria-label="SF90 Stradale scroll-controlled cinematic frame sequence"></canvas>
+  <div class="grade" aria-hidden="true"></div>
+  <div id="cut-veil" aria-hidden="true"></div>
+
+  <header class="site-header">
+    <div class="wordmark" aria-label="SF90 Stradale">
+      <span class="wordmark__model">SF90</span>
+      <span class="wordmark__series">Stradale · Hybrid performance</span>
+    </div>
+    <div class="header-actions">
+      <button id="sound-toggle" class="sound-toggle" type="button" aria-pressed="false">Sound off</button>
+    </div>
+  </header>
+
+  <main id="chapters">
+    <section class="chapter is-active" data-station="0" aria-hidden="false">
+      <p class="chapter__eyebrow">01 · Presence</p>
+      <h2 class="chapter__title">Light shapes speed</h2>
+      <p class="chapter__cn">光，勾勒速度</p>
+      <div class="chapter__detail"><span>Rosso</span><span>SF90 Stradale</span></div>
+    </section>
+
+    <section class="chapter" data-station="1" aria-hidden="true">
+      <p class="chapter__eyebrow">02 · Proportion</p>
+      <h2 class="chapter__title">Cab forward</h2>
+      <p class="chapter__cn">座舱向前，动势由此开始</p>
+      <div class="chapter__detail"><span>Sculpted body</span><span>Driver first</span></div>
+    </section>
+
+    <section class="chapter" data-station="2" aria-hidden="true">
+      <p class="chapter__eyebrow">03 · Interface</p>
+      <h2 class="chapter__title">Digital. Around you.</h2>
+      <p class="chapter__cn">数字，环绕驾驶者</p>
+      <div class="chapter__detail"><span>Curved display</span><span>Focused control</span></div>
+    </section>
+
+    <section class="chapter" data-station="3" aria-hidden="true">
+      <p class="chapter__eyebrow">04 · Signature</p>
+      <h2 class="chapter__title">From behind</h2>
+      <p class="chapter__cn">一眼识别的背影</p>
+      <div class="chapter__detail"><span>Low stance</span><span>High exhaust</span></div>
+    </section>
+
+    <section class="chapter chapter--outro" data-station="4" aria-hidden="true">
+      <p class="chapter__eyebrow">The new dimension</p>
+      <h2 class="chapter__title">SF90 Stradale</h2>
+      <p class="chapter__cn">性能，自此进入新维度</p>
+      <button id="replay" class="replay" type="button">Replay / 重新播放</button>
+    </section>
+  </main>
+
+  <nav class="rail" aria-label="章节导航">
+    <button class="rail__item is-active" type="button" data-target="0" aria-label="前脸章节">
+      <span class="rail__label">01</span><span class="rail__dot"></span>
+    </button>
+    <button class="rail__item" type="button" data-target="1" aria-label="车身章节">
+      <span class="rail__label">02</span><span class="rail__dot"></span>
+    </button>
+    <button class="rail__item" type="button" data-target="2" aria-label="座舱章节">
+      <span class="rail__label">03</span><span class="rail__dot"></span>
+    </button>
+    <button class="rail__item" type="button" data-target="3" aria-label="车尾章节">
+      <span class="rail__label">04</span><span class="rail__dot"></span>
+    </button>
+    <button class="rail__item" type="button" data-target="4" aria-label="结尾章节">
+      <span class="rail__label">End</span><span class="rail__dot"></span>
+    </button>
+  </nav>
+
+  <div class="interaction-hint" aria-hidden="true">
+    <span class="interaction-hint__mouse"></span>
+    <span class="interaction-hint__copy">Scroll or drag / 滚动或拖动探索</span>
+  </div>
+  <div id="status" class="status" aria-live="polite">Scene 01 / 04</div>
+
+  <div id="loading-screen" class="loading-screen">
+    <div class="loading-panel">
+      <p class="loading-kicker">Cinematic experience</p>
+      <p class="loading-title">SF90</p>
+      <p class="loading-subtitle">Stradale · Beyond performance</p>
+      <div class="loading-track" aria-hidden="true"><div id="loading-fill" class="loading-fill"></div></div>
+      <div class="loading-meta"><span id="loading-label">Preparing first scene</span><span id="loading-value">0%</span></div>
+      <button id="enter-button" class="enter-button" type="button" disabled>Loading / 正在加载</button>
+    </div>
+  </div>
+
+  <audio id="soundtrack" src="assets/video/shot_01.mp4" preload="auto"></audio>
+
+  <script>
+    (() => {
+      "use strict";
+
+      const FPS = 24;
+      const LAST_FRAME = 360;
+      const WHEEL_FRAMES_PER_PIXEL = 0.12; // 数值越大，滚轮跟随越快。
+      const DRAG_FRAMES_PER_PIXEL = 0.42; // 数值越大，鼠标拖动跟随越快。
+      const MAX_SCRUB_FRAME_STEP = 5; // 数值越小，追帧越细腻，但跟随延迟会增加。
+      const HARD_CUT_FRAMES = [94, 146, 270];
+      const SCRUB_CUT_OPACITY = 0.72;
+      const SCRUB_CUT_FADE_MS = 220;
+      const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const STATIONS = [
+        { id: "origin", hold: 0 },
+        { id: "form", hold: 94, enter: { from: 0, to: 93, cutTo: 94, dur: 3875 } },
+        { id: "cockpit", hold: 146, enter: { from: 94, to: 145, cutTo: 146, dur: 2125 } },
+        { id: "signature", hold: 270, enter: { from: 146, to: 269, cutTo: 270, dur: 5125 } },
+        { id: "outro", hold: 360, enter: { from: 270, to: 360, dur: 3750 } }
+      ];
+
+      const canvas = document.querySelector("#stage");
+      const context = canvas.getContext("2d", { alpha: false, desynchronized: true });
+      const fallback = document.querySelector("#fallback");
+      const cutVeil = document.querySelector("#cut-veil");
+      const chapters = [...document.querySelectorAll(".chapter")];
+      const railItems = [...document.querySelectorAll(".rail__item")];
+      const status = document.querySelector("#status");
+      const loadingScreen = document.querySelector("#loading-screen");
+      const loadingFill = document.querySelector("#loading-fill");
+      const loadingLabel = document.querySelector("#loading-label");
+      const loadingValue = document.querySelector("#loading-value");
+      const enterButton = document.querySelector("#enter-button");
+      const soundToggle = document.querySelector("#sound-toggle");
+      const soundtrack = document.querySelector("#soundtrack");
+      const replay = document.querySelector("#replay");
+
+      const state = {
+        station: 0,
+        frame: 0,
+        scrubFrame: 0,
+        scrubEpoch: 0,
+        requestedFrame: 0,
+        direction: 1,
+        playing: false,
+        dragging: false,
+        entered: false,
+        soundEnabled: false
+      };
+
+      const cache = new Map();
+      const inflight = new Map();
+      const pinned = new Set(STATIONS.map((station) => station.hold));
+      let scrubRaf = 0;
+      let scrubRendering = false;
+      let scrubIdleTimer = 0;
+      let warmTimer = 0;
+      let cutVeilRaf = 0;
+      let dragPointerId = null;
+      let dragLastY = 0;
+      let touchStartY = 0;
+
+      const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+      const wait = (duration) => new Promise((resolve) => window.setTimeout(resolve, duration));
+      const framePath = (index) => `assets/frames/shot_01/frame_${String(index).padStart(4, "0")}.webp`;
+
+      function easeInOut(value) {
+        const easeOut = 1 - Math.pow(1 - value, 3);
+        const strong = value < 0.5
+          ? 2 * value * value
+          : 1 - Math.pow(-2 * value + 2, 2) / 2;
+        return easeOut * 0.55 + strong * 0.3 + value * 0.15;
+      }
+
+      async function decodeFrame(index) {
+        const image = new Image();
+        image.decoding = "async";
+        image.src = framePath(index);
+        if (image.decode) {
+          await image.decode();
+        } else {
+          await new Promise((resolve, reject) => {
+            image.onload = resolve;
+            image.onerror = reject;
+          });
+        }
+
+        if ("createImageBitmap" in window) {
+          try {
+            const bitmap = await createImageBitmap(image);
+            return { drawable: bitmap, disposable: true };
+          } catch {
+            return { drawable: image, disposable: false };
+          }
+        }
+        return { drawable: image, disposable: false };
+      }
+
+      function trimCache(center = state.frame) {
+        const behind = state.direction > 0 ? 9 : 20;
+        const ahead = state.direction > 0 ? 20 : 9;
+        const min = Math.max(0, center - behind);
+        const max = Math.min(LAST_FRAME, center + ahead);
+
+        for (const [index, entry] of cache) {
+          const keep = pinned.has(index) || index === state.requestedFrame || (index >= min && index <= max);
+          if (!keep) {
+            if (entry.disposable && typeof entry.drawable.close === "function") entry.drawable.close();
+            cache.delete(index);
+          }
+        }
+      }
+
+      function loadFrame(index) {
+        const frame = clamp(Math.round(index), 0, LAST_FRAME);
+        if (cache.has(frame)) return Promise.resolve(cache.get(frame));
+        if (inflight.has(frame)) return inflight.get(frame);
+
+        const promise = decodeFrame(frame)
+          .then((entry) => {
+            cache.set(frame, entry);
+            inflight.delete(frame);
+            trimCache();
+            return entry;
+          })
+          .catch((error) => {
+            inflight.delete(frame);
+            throw error;
+          });
+        inflight.set(frame, promise);
+        return promise;
+      }
+
+      function windowFrames(center, direction, radius = 20) {
+        const frames = [];
+        const back = direction > 0 ? 6 : radius;
+        const forward = direction > 0 ? radius : 6;
+        for (let index = center - back; index <= center + forward; index += 1) {
+          if (index >= 0 && index <= LAST_FRAME) frames.push(index);
+        }
+        return frames;
+      }
+
+      async function warmWindow(center, direction, radius = 20) {
+        const frames = windowFrames(center, direction, radius);
+        await Promise.allSettled(frames.map((frame) => loadFrame(frame)));
+      }
+
+      function resizeCanvas() {
+        const dpr = Math.min(window.devicePixelRatio || 1, 1.75);
+        canvas.width = Math.max(1, Math.round(window.innerWidth * dpr));
+        canvas.height = Math.max(1, Math.round(window.innerHeight * dpr));
+        const current = cache.get(state.frame);
+        if (current) drawEntry(current.drawable);
+      }
+
+      function drawEntry(drawable) {
+        const sourceWidth = drawable.width || drawable.naturalWidth;
+        const sourceHeight = drawable.height || drawable.naturalHeight;
+        const portrait = window.innerWidth / window.innerHeight < 0.82;
+        const scale = portrait
+          ? Math.min(canvas.width / sourceWidth, canvas.height / sourceHeight)
+          : Math.max(canvas.width / sourceWidth, canvas.height / sourceHeight);
+        const width = sourceWidth * scale;
+        const height = sourceHeight * scale;
+        const x = (canvas.width - width) / 2;
+        const y = (canvas.height - height) / 2;
+        context.fillStyle = "#050505";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.drawImage(drawable, x, y, width, height);
+      }
+
+      function updateProgress(frame) {
+        const progress = clamp(frame / LAST_FRAME, 0, 1);
+        document.documentElement.style.setProperty("--progress", progress.toFixed(4));
+      }
+
+      async function renderFrame(index, force = false, scrubEpoch = null) {
+        const frame = clamp(Math.round(index), 0, LAST_FRAME);
+        state.requestedFrame = frame;
+        const entry = await loadFrame(frame);
+        if (scrubEpoch !== null && scrubEpoch !== state.scrubEpoch) return false;
+        if (!force && state.requestedFrame !== frame) return false;
+        drawEntry(entry.drawable);
+        state.frame = frame;
+        canvas.dataset.frame = String(frame);
+        updateProgress(frame);
+        trimCache(frame);
+        return true;
+      }
+
+      function stationForFrame(frame) {
+        let station = 0;
+        for (let index = 1; index < STATIONS.length; index += 1) {
+          if (frame < STATIONS[index].hold) break;
+          station = index;
+        }
+        return station;
+      }
+
+      function settleStation(index) {
+        state.station = index;
+        chapters.forEach((chapter, chapterIndex) => {
+          const active = chapterIndex === index;
+          chapter.classList.toggle("is-active", active);
+          chapter.setAttribute("aria-hidden", String(!active));
+        });
+        railItems.forEach((item, itemIndex) => {
+          item.classList.toggle("is-active", itemIndex === index);
+          item.setAttribute("aria-current", itemIndex === index ? "step" : "false");
+        });
+        const visibleNumber = index === STATIONS.length - 1 ? "END" : `0${index + 1} / 04`;
+        status.textContent = `Scene ${visibleNumber}`;
+        document.body.classList.remove("is-playing");
+      }
+
+      function syncStationToFrame(frame) {
+        const station = stationForFrame(frame);
+        if (station !== state.station) settleStation(station);
+      }
+
+      function crossedHardCut(from, to) {
+        if (to > from) return HARD_CUT_FRAMES.some((cut) => from < cut && to >= cut);
+        if (to < from) return HARD_CUT_FRAMES.some((cut) => from >= cut && to < cut);
+        return false;
+      }
+
+      function pulseCutVeil() {
+        cancelAnimationFrame(cutVeilRaf);
+        cutVeil.style.transition = "none";
+        cutVeil.style.opacity = String(SCRUB_CUT_OPACITY);
+        cutVeilRaf = requestAnimationFrame(() => {
+          cutVeil.style.transition = `opacity ${SCRUB_CUT_FADE_MS}ms ease-out`;
+          cutVeil.style.opacity = "0";
+        });
+      }
+
+      function scheduleScrubRender() {
+        if (scrubRaf || scrubRendering || state.playing || !state.entered) return;
+        scrubRaf = requestAnimationFrame(async () => {
+          scrubRaf = 0;
+          if (scrubRendering || state.playing) return;
+          scrubRendering = true;
+
+          const desired = Math.round(state.scrubFrame);
+          const distance = desired - state.frame;
+          const target = state.frame + Math.sign(distance) * Math.min(Math.abs(distance), MAX_SCRUB_FRAME_STEP);
+          const direction = Math.sign(target - state.frame) || state.direction;
+          const scrubEpoch = state.scrubEpoch;
+          state.direction = direction;
+
+          try {
+            if (crossedHardCut(state.frame, target)) pulseCutVeil();
+            const committed = await renderFrame(target, false, scrubEpoch);
+            if (committed) {
+              syncStationToFrame(target);
+              window.clearTimeout(warmTimer);
+              warmTimer = window.setTimeout(() => void warmWindow(target, direction, 10), 100);
+            }
+          } catch (error) {
+            console.error(error);
+            status.textContent = "Frame loading error";
+          } finally {
+            scrubRendering = false;
+            if (!state.playing && Math.round(state.scrubFrame) !== state.frame) scheduleScrubRender();
+          }
+        });
+      }
+
+      function scrubBy(frameDelta) {
+        if (!state.entered || state.playing || !Number.isFinite(frameDelta)) return;
+        state.scrubFrame = clamp(state.scrubFrame + frameDelta, 0, LAST_FRAME);
+        state.scrubEpoch += 1;
+        state.requestedFrame = Math.round(state.scrubFrame);
+        document.body.classList.add("is-scrubbing");
+        window.clearTimeout(scrubIdleTimer);
+        scrubIdleTimer = window.setTimeout(() => document.body.classList.remove("is-scrubbing"), 160);
+        scheduleScrubRender();
+      }
+
+      function beginAudio(fromFrame, direction) {
+        soundtrack.pause();
+        if (!state.soundEnabled || direction < 0) return;
+        try {
+          soundtrack.currentTime = fromFrame / FPS;
+          soundtrack.volume = 0.72;
+          void soundtrack.play();
+        } catch {
+          // Audio is optional; visuals continue if the browser blocks playback.
+        }
+      }
+
+      function endAudio() {
+        soundtrack.pause();
+      }
+
+      async function animateRange(from, to, duration) {
+        state.direction = Math.sign(to - from) || 1;
+        await warmWindow(from, state.direction, 18);
+
+        if (REDUCED_MOTION) {
+          await renderFrame(to, true);
+          return;
+        }
+
+        await renderFrame(from, true);
+        await new Promise((resolve) => {
+          const started = performance.now();
+          const tick = (now) => {
+            const raw = clamp((now - started) / duration, 0, 1);
+            const eased = easeInOut(raw);
+            const frame = Math.round(from + (to - from) * eased);
+            void renderFrame(frame);
+            if (frame % 4 === 0) void warmWindow(frame, state.direction, 18);
+
+            if (raw < 1) {
+              requestAnimationFrame(tick);
+            } else {
+              renderFrame(to, true).then(resolve);
+            }
+          };
+          requestAnimationFrame(tick);
+        });
+      }
+
+      async function cutTo(frame) {
+        cancelAnimationFrame(cutVeilRaf);
+        if (REDUCED_MOTION) {
+          await renderFrame(frame, true);
+          return;
+        }
+        cutVeil.style.transition = "opacity 130ms ease-out";
+        cutVeil.style.opacity = "0.82";
+        await wait(135);
+        await renderFrame(frame, true);
+        await wait(25);
+        cutVeil.style.transition = "opacity 210ms ease-in";
+        cutVeil.style.opacity = "0";
+        await wait(215);
+      }
+
+      function adjacentStationIndex(direction) {
+        const position = state.scrubFrame;
+        if (direction > 0) {
+          return STATIONS.findIndex((station) => station.hold > position + 0.5);
+        }
+        for (let index = STATIONS.length - 1; index >= 0; index -= 1) {
+          if (STATIONS[index].hold < position - 0.5) return index;
+        }
+        return -1;
+      }
+
+      async function playStep(direction) {
+        if (!state.entered || state.playing) return false;
+        const next = adjacentStationIndex(direction);
+        if (next < 0) return false;
+
+        const from = state.frame;
+        const target = STATIONS[next].hold;
+        const duration = Math.max(320, Math.abs(target - from) / FPS * 1000);
+
+        cancelPointerDrag();
+        state.scrubEpoch += 1;
+        state.playing = true;
+        document.body.classList.add("is-playing");
+        status.textContent = direction > 0 ? "Playing forward" : "Returning";
+
+        try {
+          beginAudio(from, direction);
+          await animateRange(from, target, duration);
+          await renderFrame(target, true);
+          state.scrubFrame = target;
+          settleStation(next);
+          return true;
+        } catch (error) {
+          console.error(error);
+          status.textContent = "Frame loading error";
+          document.body.classList.remove("is-playing");
+          return false;
+        } finally {
+          endAudio();
+          state.playing = false;
+        }
+      }
+
+      async function jumpToStation(target) {
+        const destination = clamp(target, 0, STATIONS.length - 1);
+        const targetFrame = STATIONS[destination].hold;
+        const alreadyThere = destination === state.station && Math.abs(state.scrubFrame - targetFrame) < 1;
+        if (!state.entered || state.playing || alreadyThere) return false;
+
+        cancelPointerDrag();
+        state.scrubEpoch += 1;
+        state.playing = true;
+        document.body.classList.add("is-playing");
+        status.textContent = "Jumping to scene";
+        endAudio();
+
+        try {
+          await cutTo(targetFrame);
+          state.scrubFrame = targetFrame;
+          settleStation(destination);
+          return true;
+        } catch (error) {
+          console.error(error);
+          status.textContent = "Frame loading error";
+          document.body.classList.remove("is-playing");
+          return false;
+        } finally {
+          state.playing = false;
+        }
+      }
+
+      async function restart() {
+        if (state.playing) return;
+        cancelPointerDrag();
+        state.scrubEpoch += 1;
+        state.playing = true;
+        document.body.classList.add("is-playing");
+        endAudio();
+        await cutTo(0);
+        state.scrubFrame = 0;
+        settleStation(0);
+        state.playing = false;
+      }
+
+      function normalizedWheelPixels(event) {
+        if (event.deltaMode === 1) return event.deltaY * 16;
+        if (event.deltaMode === 2) return event.deltaY * window.innerHeight;
+        return event.deltaY;
+      }
+
+      function handleWheel(event) {
+        event.preventDefault();
+        if (!state.entered || state.playing) return;
+        const delta = normalizedWheelPixels(event);
+        if (Math.abs(delta) < 0.1) return;
+        scrubBy(delta * WHEEL_FRAMES_PER_PIXEL);
+      }
+
+      function handlePointerDown(event) {
+        if (event.pointerType !== "mouse" || event.button !== 0 || !state.entered || state.playing) return;
+        if (event.target.closest?.("button, a, input, select, textarea")) return;
+        state.dragging = true;
+        dragPointerId = event.pointerId;
+        dragLastY = event.clientY;
+        document.body.classList.add("is-dragging");
+        event.preventDefault();
+      }
+
+      function handlePointerMove(event) {
+        if (!state.dragging || event.pointerId !== dragPointerId) return;
+        const delta = dragLastY - event.clientY;
+        dragLastY = event.clientY;
+        if (Math.abs(delta) > 0.1) scrubBy(delta * DRAG_FRAMES_PER_PIXEL);
+        event.preventDefault();
+      }
+
+      function cancelPointerDrag() {
+        state.dragging = false;
+        dragPointerId = null;
+        document.body.classList.remove("is-dragging");
+      }
+
+      function endPointerDrag(event) {
+        if (!state.dragging || event.pointerId !== dragPointerId) return;
+        cancelPointerDrag();
+      }
+
+      function handleKey(event) {
+        if (!state.entered || state.playing) return;
+        const forward = ["ArrowDown", "PageDown", "Enter", " "];
+        const backward = ["ArrowUp", "PageUp"];
+        if (forward.includes(event.key)) {
+          event.preventDefault();
+          void playStep(1);
+        } else if (backward.includes(event.key)) {
+          event.preventDefault();
+          void playStep(-1);
+        } else if (event.key === "Home") {
+          event.preventDefault();
+          void restart();
+        }
+      }
+
+      function handleTouchStart(event) {
+        touchStartY = event.changedTouches[0].clientY;
+      }
+
+      function handleTouchEnd(event) {
+        if (!state.entered || state.playing) return;
+        const distance = touchStartY - event.changedTouches[0].clientY;
+        if (Math.abs(distance) > 48) void playStep(distance > 0 ? 1 : -1);
+      }
+
+      function toggleSound() {
+        state.soundEnabled = !state.soundEnabled;
+        soundToggle.setAttribute("aria-pressed", String(state.soundEnabled));
+        soundToggle.textContent = state.soundEnabled ? "Sound on" : "Sound off";
+        if (!state.soundEnabled) endAudio();
+      }
+
+      async function prepareExperience() {
+        const initialFrames = [...new Set([
+          ...STATIONS.map((station) => station.hold),
+          ...Array.from({ length: 25 }, (_, index) => index)
+        ])];
+        let completed = 0;
+
+        const results = await Promise.allSettled(initialFrames.map(async (frame) => {
+          await loadFrame(frame);
+          completed += 1;
+          const percent = Math.round((completed / initialFrames.length) * 100);
+          loadingFill.style.width = `${percent}%`;
+          loadingValue.textContent = `${percent}%`;
+        }));
+
+        const failed = results.filter((result) => result.status === "rejected").length;
+        if (failed > 0 || !cache.has(0)) {
+          loadingLabel.textContent = "Some frames could not be loaded";
+          enterButton.textContent = "Open fallback / 使用静态版本";
+        } else {
+          await renderFrame(0, true);
+          canvas.classList.add("is-ready");
+          fallback.classList.add("is-hidden");
+          loadingLabel.textContent = "First scene ready";
+          enterButton.textContent = "Enter experience / 进入体验";
+        }
+        enterButton.disabled = false;
+      }
+
+      function enterExperience() {
+        state.entered = true;
+        state.scrubFrame = 0;
+        document.body.classList.add("is-entered");
+        loadingScreen.classList.add("is-hidden");
+        settleStation(0);
+        soundtrack.load();
+      }
+
+      railItems.forEach((item) => {
+        item.addEventListener("click", () => void jumpToStation(Number(item.dataset.target)));
+      });
+      soundToggle.addEventListener("click", toggleSound);
+      replay.addEventListener("click", () => void restart());
+      enterButton.addEventListener("click", enterExperience);
+      window.addEventListener("wheel", handleWheel, { passive: false });
+      window.addEventListener("keydown", handleKey);
+      window.addEventListener("pointerdown", handlePointerDown, { capture: true });
+      window.addEventListener("pointermove", handlePointerMove);
+      window.addEventListener("pointerup", endPointerDrag);
+      window.addEventListener("pointercancel", endPointerDrag);
+      window.addEventListener("blur", cancelPointerDrag);
+      window.addEventListener("touchstart", handleTouchStart, { passive: true });
+      window.addEventListener("touchend", handleTouchEnd, { passive: true });
+      window.addEventListener("resize", resizeCanvas);
+
+      resizeCanvas();
+      void prepareExperience();
+    })();
+  </script>
+</body>
+</html>
