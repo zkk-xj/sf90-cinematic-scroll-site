@@ -721,10 +721,11 @@
       const USE_LIGHTWEIGHT_FRAMES = IS_MOBILE && CONNECTION?.saveData === true;
       const FRAME_DIRECTORY = USE_LIGHTWEIGHT_FRAMES ? "shot_01_mobile" : "shot_01";
       const MAX_DECODE_CONCURRENCY = IS_MOBILE ? 4 : 6;
+      const MAX_BACKGROUND_DECODE_CONCURRENCY = 1;
       const MAX_CANVAS_DPR = IS_MOBILE ? (USE_LIGHTWEIGHT_FRAMES ? 1.75 : 2) : 1.75;
       const CACHE_SHORT_SIDE = IS_MOBILE ? (USE_LIGHTWEIGHT_FRAMES ? 8 : 6) : 9;
-      const CACHE_LONG_SIDE = IS_MOBILE ? (USE_LIGHTWEIGHT_FRAMES ? 80 : 24) : 20;
-      const INITIAL_PRELOAD_COUNT = USE_LIGHTWEIGHT_FRAMES ? 65 : 25;
+      const CACHE_LONG_SIDE = IS_MOBILE ? (USE_LIGHTWEIGHT_FRAMES ? 80 : 31) : 20;
+      const INITIAL_PRELOAD_COUNT = USE_LIGHTWEIGHT_FRAMES ? 65 : IS_MOBILE ? 32 : 25;
       const WARM_RADIUS = IS_MOBILE ? (USE_LIGHTWEIGHT_FRAMES ? 7 : 24) : 12;
       const WARM_TRIGGER_DISTANCE = IS_MOBILE ? 12 : 8;
       const HARD_CUT_FRAMES = [94, 146, 270];
@@ -772,8 +773,10 @@
       const inflight = new Map();
       const decodeQueue = [];
       const queuedDecodes = new Map();
+      const activeDecodeTasks = new Map();
       const pinned = new Set(STATIONS.map((station) => station.hold));
       let activeDecodes = 0;
+      let activeBackgroundDecodes = 0;
       let decodeOrder = 0;
       let scrubRendering = false;
       let scrubIdleTimer = 0;
@@ -787,6 +790,7 @@
       const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
       const wait = (duration) => new Promise((resolve) => window.setTimeout(resolve, duration));
       const framePath = (index) => `assets/frames/${FRAME_DIRECTORY}/frame_${String(index).padStart(4, "0")}.webp`;
+      const cacheIntentCenter = () => Math.round(state.playing ? state.requestedFrame : state.scrubFrame);
 
       function easeInOut(value) {
         const easeOut = 1 - Math.pow(1 - value, 3);
@@ -796,28 +800,51 @@
         return easeOut * 0.55 + strong * 0.3 + value * 0.15;
       }
 
-      async function decodeFrame(index) {
+      const abortError = () => new DOMException("Superseded frame request", "AbortError");
+      const isAbortError = (error) => error?.name === "AbortError";
+
+      async function decodeFrame(index, signal) {
         const image = new Image();
         image.decoding = "async";
+        if (signal?.aborted) throw abortError();
         image.src = framePath(index);
-        if (image.decode) {
-          await image.decode();
-        } else {
-          await new Promise((resolve, reject) => {
+        let onAbort = null;
+        const aborted = new Promise((resolve, reject) => {
+          if (!signal) return;
+          onAbort = () => {
+            image.src = "data:,";
+            reject(abortError());
+          };
+          if (signal.aborted) onAbort();
+          else signal.addEventListener("abort", onAbort, { once: true });
+        });
+        const decoded = image.decode
+          ? image.decode()
+          : new Promise((resolve, reject) => {
             image.onload = resolve;
             image.onerror = reject;
           });
-        }
+        try {
+          await (signal ? Promise.race([decoded, aborted]) : decoded);
+          if (signal?.aborted) throw abortError();
 
-        if ("createImageBitmap" in window) {
-          try {
-            const bitmap = await createImageBitmap(image);
-            return { drawable: bitmap, disposable: true };
-          } catch {
-            return { drawable: image, disposable: false };
+          if ("createImageBitmap" in window) {
+            try {
+              const bitmap = await createImageBitmap(image);
+              if (signal?.aborted) {
+                bitmap.close();
+                throw abortError();
+              }
+              return { drawable: bitmap, disposable: true };
+            } catch (error) {
+              if (signal?.aborted || isAbortError(error)) throw abortError();
+              return { drawable: image, disposable: false };
+            }
           }
+          return { drawable: image, disposable: false };
+        } finally {
+          if (signal && onAbort) signal.removeEventListener("abort", onAbort);
         }
-        return { drawable: image, disposable: false };
       }
 
       function trimCache(center = state.frame) {
@@ -851,20 +878,37 @@
       function pumpDecodeQueue() {
         while (activeDecodes < MAX_DECODE_CONCURRENCY && decodeQueue.length > 0) {
           const task = takeNextDecode();
+          const background = task.priority <= 0;
+          if (background && activeBackgroundDecodes >= MAX_BACKGROUND_DECODE_CONCURRENCY) {
+            decodeQueue.push(task);
+            break;
+          }
           queuedDecodes.delete(task.frame);
+          activeDecodeTasks.set(task.frame, task);
           activeDecodes += 1;
-          decodeFrame(task.frame)
+          if (background) activeBackgroundDecodes += 1;
+          decodeFrame(task.frame, task.controller.signal)
             .then(task.resolve, task.reject)
             .finally(() => {
+              if (activeDecodeTasks.get(task.frame) === task) activeDecodeTasks.delete(task.frame);
               activeDecodes -= 1;
+              if (background) activeBackgroundDecodes -= 1;
               pumpDecodeQueue();
             });
         }
       }
 
-      function queueDecode(frame, priority) {
+      function queueDecode(frame, priority, purpose) {
         return new Promise((resolve, reject) => {
-          const task = { frame, priority, order: decodeOrder, resolve, reject };
+          const task = {
+            frame,
+            priority,
+            purpose,
+            order: decodeOrder,
+            controller: new AbortController(),
+            resolve,
+            reject
+          };
           decodeOrder += 1;
           decodeQueue.push(task);
           queuedDecodes.set(frame, task);
@@ -872,24 +916,26 @@
         });
       }
 
-      function promoteQueuedDecode(frame, priority) {
-        const task = queuedDecodes.get(frame);
-        if (task) task.priority = Math.max(task.priority, priority);
+      function promoteDecode(frame, priority, purpose) {
+        const task = queuedDecodes.get(frame) || activeDecodeTasks.get(frame);
+        if (!task) return;
+        task.priority = Math.max(task.priority, priority);
+        if (purpose === "scrub") task.purpose = "scrub";
       }
 
-      function loadFrame(index, priority = 0) {
+      function loadFrame(index, priority = 0, purpose = "general") {
         const frame = clamp(Math.round(index), 0, LAST_FRAME);
         if (cache.has(frame)) return Promise.resolve(cache.get(frame));
         if (inflight.has(frame)) {
-          promoteQueuedDecode(frame, priority);
+          promoteDecode(frame, priority, purpose);
           return inflight.get(frame);
         }
 
-        const promise = queueDecode(frame, priority)
+        const promise = queueDecode(frame, priority, purpose)
           .then((entry) => {
             cache.set(frame, entry);
             inflight.delete(frame);
-            trimCache();
+            trimCache(cacheIntentCenter());
             return entry;
           })
           .catch((error) => {
@@ -900,19 +946,43 @@
         return promise;
       }
 
-      function windowFrames(center, direction, radius = 20) {
-        const frames = [];
-        const back = direction > 0 ? 6 : radius;
-        const forward = direction > 0 ? radius : 6;
-        for (let index = center - back; index <= center + forward; index += 1) {
-          if (index >= 0 && index <= LAST_FRAME) frames.push(index);
+      function cancelObsoleteScrubDecodes(latestFrame) {
+        for (let index = decodeQueue.length - 1; index >= 0; index -= 1) {
+          const task = decodeQueue[index];
+          const obsolete = task.purpose === "scrub" || task.purpose === "background";
+          if (!obsolete || task.frame === latestFrame) continue;
+          decodeQueue.splice(index, 1);
+          queuedDecodes.delete(task.frame);
+          task.controller.abort();
+          task.reject(abortError());
         }
-        return frames;
+
+        for (const task of activeDecodeTasks.values()) {
+          if (task.frame === latestFrame) {
+            task.priority = Math.max(task.priority, 2);
+            task.purpose = "scrub";
+          } else if (task.purpose === "scrub" || task.purpose === "background") {
+            task.controller.abort();
+          }
+        }
+      }
+
+      function windowFrames(center, direction, radius = 20) {
+        const frames = [clamp(Math.round(center), 0, LAST_FRAME)];
+        for (let offset = 1; offset <= radius; offset += 1) {
+          const frame = Math.round(center + direction * offset);
+          if (frame >= 0 && frame <= LAST_FRAME) frames.push(frame);
+        }
+        for (let offset = 1; offset <= 6; offset += 1) {
+          const frame = Math.round(center - direction * offset);
+          if (frame >= 0 && frame <= LAST_FRAME) frames.push(frame);
+        }
+        return [...new Set(frames)];
       }
 
       async function warmWindow(center, direction, radius = 20) {
         const frames = windowFrames(center, direction, radius);
-        await Promise.allSettled(frames.map((frame) => loadFrame(frame, 0)));
+        await Promise.allSettled(frames.map((frame) => loadFrame(frame, 0, "background")));
       }
 
       function resizeCanvas() {
@@ -947,14 +1017,14 @@
       async function renderFrame(index, force = false, scrubEpoch = null) {
         const frame = clamp(Math.round(index), 0, LAST_FRAME);
         state.requestedFrame = frame;
-        const entry = await loadFrame(frame, 2);
+        const entry = await loadFrame(frame, 2, scrubEpoch === null ? "general" : "scrub");
         if (scrubEpoch !== null && scrubEpoch !== state.scrubEpoch) return false;
         if (!force && state.requestedFrame !== frame) return false;
         drawEntry(entry.drawable);
         state.frame = frame;
         canvas.dataset.frame = String(frame);
         updateProgress(frame);
-        trimCache(frame);
+        trimCache(cacheIntentCenter());
         return true;
       }
 
@@ -1022,6 +1092,7 @@
             syncStationToFrame(target);
           })
           .catch((error) => {
+            if (isAbortError(error)) return;
             console.error(error);
             status.textContent = "Frame loading error";
           })
@@ -1031,18 +1102,27 @@
           });
       }
 
+      function settleScrubIntent() {
+        window.clearTimeout(scrubIdleTimer);
+        document.body.classList.remove("is-scrubbing");
+        state.scrubEpoch += 1;
+        cancelObsoleteScrubDecodes(Math.round(state.scrubFrame));
+        scheduleScrubRender();
+      }
+
       function scrubBy(frameDelta) {
         if (!state.entered || state.playing || !Number.isFinite(frameDelta)) return;
-        const previousTarget = Math.round(state.scrubFrame);
         const inputDirection = Math.sign(frameDelta);
+        const directionChanged = inputDirection !== 0 && inputDirection !== state.direction;
+        if (directionChanged) state.scrubEpoch += 1;
         state.scrubFrame = clamp(state.scrubFrame + frameDelta, 0, LAST_FRAME);
         const nextTarget = Math.round(state.scrubFrame);
         if (inputDirection !== 0) state.direction = inputDirection;
-        if (nextTarget !== previousTarget) state.scrubEpoch += 1;
+        if (directionChanged) cancelObsoleteScrubDecodes(nextTarget);
         document.body.classList.add("is-scrubbing");
         window.clearTimeout(scrubIdleTimer);
         window.clearTimeout(warmTimer);
-        scrubIdleTimer = window.setTimeout(() => document.body.classList.remove("is-scrubbing"), 160);
+        scrubIdleTimer = window.setTimeout(settleScrubIntent, 160);
         warmTimer = window.setTimeout(() => {
           if (!state.playing && Math.abs(state.scrubFrame - state.frame) < 1) {
             void warmWindow(state.frame, state.direction, WARM_RADIUS);
@@ -1291,7 +1371,7 @@
       function endPointerDrag(event) {
         if (!state.dragging || event.pointerId !== dragPointerId) return;
         cancelPointerDrag();
-        scheduleScrubRender();
+        settleScrubIntent();
       }
 
       function handleKey(event) {
@@ -1339,7 +1419,7 @@
         const ended = [...event.changedTouches].some((item) => item.identifier === touchIdentifier);
         if (ended) {
           cancelTouchDrag();
-          scheduleScrubRender();
+          settleScrubIntent();
         }
       }
 
@@ -1390,7 +1470,9 @@
         document.body.classList.add("is-entered");
         loadingScreen.classList.add("is-hidden");
         settleStation(0);
-        void warmWindow(0, 1, WARM_RADIUS);
+        if (!IS_MOBILE || USE_LIGHTWEIGHT_FRAMES) {
+          void warmWindow(0, 1, WARM_RADIUS);
+        }
       }
 
       railItems.forEach((item) => {
