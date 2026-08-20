@@ -1145,7 +1145,14 @@
           .catch((error) => {
             if (!isAbortError(error)) console.error(error);
           })
-          .finally(() => trimCache(cacheIntentCenter()));
+          .finally(() => {
+            trimCache(cacheIntentCenter());
+            window.setTimeout(() => {
+              if (scrubEpoch === state.scrubEpoch && document.body.classList.contains("is-scrubbing")) {
+                requestScrubForecast(performance.now());
+              }
+            }, 0);
+          });
       }
 
       function requestScrubForecast(now) {
