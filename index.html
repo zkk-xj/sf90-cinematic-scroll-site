@@ -715,13 +715,17 @@
       const LAST_FRAME = 360;
       const WHEEL_FRAMES_PER_PIXEL = 0.12; // 数值越大，滚轮跟随越快。
       const DRAG_FRAMES_PER_PIXEL = 0.42; // 数值越大，鼠标拖动跟随越快。
-      const TOUCH_FRAMES_PER_PIXEL = 0.10; // 数值越大，手机触滑跟随越快。
-      const MAX_SCRUB_FRAME_STEP = 5; // 数值越小，追帧越细腻，但跟随延迟会增加。
+      const TOUCH_FRAMES_PER_PIXEL = 0.42; // 与鼠标拖动保持同一位置映射。
       const IS_MOBILE = window.matchMedia("(max-width: 820px), (pointer: coarse)").matches;
-      const FRAME_DIRECTORY = IS_MOBILE ? "shot_01_mobile" : "shot_01";
+      const CONNECTION = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+      const USE_LIGHTWEIGHT_FRAMES = IS_MOBILE && CONNECTION?.saveData === true;
+      const FRAME_DIRECTORY = USE_LIGHTWEIGHT_FRAMES ? "shot_01_mobile" : "shot_01";
       const MAX_DECODE_CONCURRENCY = IS_MOBILE ? 4 : 6;
-      const MAX_CANVAS_DPR = IS_MOBILE ? 1.5 : 1.75;
-      const WARM_RADIUS = IS_MOBILE ? 7 : 12;
+      const MAX_CANVAS_DPR = IS_MOBILE ? (USE_LIGHTWEIGHT_FRAMES ? 1.75 : 2) : 1.75;
+      const CACHE_SHORT_SIDE = IS_MOBILE ? (USE_LIGHTWEIGHT_FRAMES ? 8 : 6) : 9;
+      const CACHE_LONG_SIDE = IS_MOBILE ? (USE_LIGHTWEIGHT_FRAMES ? 80 : 24) : 20;
+      const INITIAL_PRELOAD_COUNT = USE_LIGHTWEIGHT_FRAMES ? 65 : 25;
+      const WARM_RADIUS = IS_MOBILE ? (USE_LIGHTWEIGHT_FRAMES ? 7 : 24) : 12;
       const WARM_TRIGGER_DISTANCE = IS_MOBILE ? 12 : 8;
       const HARD_CUT_FRAMES = [94, 146, 270];
       const SCRUB_CUT_OPACITY = 0.72;
@@ -771,7 +775,6 @@
       const pinned = new Set(STATIONS.map((station) => station.hold));
       let activeDecodes = 0;
       let decodeOrder = 0;
-      let scrubRaf = 0;
       let scrubRendering = false;
       let scrubIdleTimer = 0;
       let warmTimer = 0;
@@ -818,10 +821,8 @@
       }
 
       function trimCache(center = state.frame) {
-        const shortSide = IS_MOBILE ? 8 : 9;
-        const longSide = IS_MOBILE ? 80 : 20;
-        const behind = state.direction > 0 ? shortSide : longSide;
-        const ahead = state.direction > 0 ? longSide : shortSide;
+        const behind = state.direction > 0 ? CACHE_SHORT_SIDE : CACHE_LONG_SIDE;
+        const ahead = state.direction > 0 ? CACHE_LONG_SIDE : CACHE_SHORT_SIDE;
         const min = Math.max(0, center - behind);
         const max = Math.min(LAST_FRAME, center + ahead);
 
@@ -1004,45 +1005,40 @@
       }
 
       function scheduleScrubRender() {
-        if (scrubRaf || scrubRendering || state.playing || !state.entered) return;
-        scrubRaf = requestAnimationFrame(async () => {
-          scrubRaf = 0;
-          if (scrubRendering || state.playing) return;
-          scrubRendering = true;
+        if (scrubRendering || state.playing || !state.entered) return;
+        const target = Math.round(state.scrubFrame);
+        if (target === state.frame) return;
 
-          const desired = Math.round(state.scrubFrame);
-          const distance = desired - state.frame;
-          const mobileStep = Math.abs(distance) > 40 ? 16 : Math.abs(distance) > 16 ? 10 : MAX_SCRUB_FRAME_STEP;
-          const maxStep = IS_MOBILE ? mobileStep : MAX_SCRUB_FRAME_STEP;
-          const target = state.frame + Math.sign(distance) * Math.min(Math.abs(distance), maxStep);
-          const direction = Math.sign(target - state.frame) || state.direction;
-          const scrubEpoch = state.scrubEpoch;
-          state.direction = direction;
+        const from = state.frame;
+        const direction = Math.sign(target - from) || state.direction;
+        const scrubEpoch = state.scrubEpoch;
+        state.direction = direction;
+        scrubRendering = true;
 
-          try {
-            if (crossedHardCut(state.frame, target)) pulseCutVeil();
-            const committed = await renderFrame(target, false, scrubEpoch);
-            if (committed) {
-              syncStationToFrame(target);
-            }
-          } catch (error) {
+        void renderFrame(target, false, scrubEpoch)
+          .then((committed) => {
+            if (!committed) return;
+            if (crossedHardCut(from, target)) pulseCutVeil();
+            syncStationToFrame(target);
+          })
+          .catch((error) => {
             console.error(error);
             status.textContent = "Frame loading error";
-          } finally {
+          })
+          .finally(() => {
             scrubRendering = false;
             if (!state.playing && Math.round(state.scrubFrame) !== state.frame) scheduleScrubRender();
-          }
-        });
+          });
       }
 
       function scrubBy(frameDelta) {
         if (!state.entered || state.playing || !Number.isFinite(frameDelta)) return;
+        const previousTarget = Math.round(state.scrubFrame);
         const inputDirection = Math.sign(frameDelta);
-        if (inputDirection !== 0 && inputDirection !== state.direction) {
-          state.direction = inputDirection;
-          state.scrubEpoch += 1;
-        }
         state.scrubFrame = clamp(state.scrubFrame + frameDelta, 0, LAST_FRAME);
+        const nextTarget = Math.round(state.scrubFrame);
+        if (inputDirection !== 0) state.direction = inputDirection;
+        if (nextTarget !== previousTarget) state.scrubEpoch += 1;
         document.body.classList.add("is-scrubbing");
         window.clearTimeout(scrubIdleTimer);
         window.clearTimeout(warmTimer);
@@ -1295,6 +1291,7 @@
       function endPointerDrag(event) {
         if (!state.dragging || event.pointerId !== dragPointerId) return;
         cancelPointerDrag();
+        scheduleScrubRender();
       }
 
       function handleKey(event) {
@@ -1340,7 +1337,10 @@
       function handleTouchEnd(event) {
         if (touchIdentifier === null) return;
         const ended = [...event.changedTouches].some((item) => item.identifier === touchIdentifier);
-        if (ended) cancelTouchDrag();
+        if (ended) {
+          cancelTouchDrag();
+          scheduleScrubRender();
+        }
       }
 
       function toggleSound() {
@@ -1357,7 +1357,7 @@
 
       async function prepareExperience() {
         const initialFrames = [...new Set([
-          ...Array.from({ length: IS_MOBILE ? 65 : 25 }, (_, index) => index),
+          ...Array.from({ length: INITIAL_PRELOAD_COUNT }, (_, index) => index),
           ...(IS_MOBILE ? [] : STATIONS.map((station) => station.hold))
         ])];
         let completed = 0;
@@ -1390,7 +1390,7 @@
         document.body.classList.add("is-entered");
         loadingScreen.classList.add("is-hidden");
         settleStation(0);
-        void warmWindow(IS_MOBILE ? 64 : 0, 1, IS_MOBILE ? 20 : WARM_RADIUS);
+        void warmWindow(0, 1, WARM_RADIUS);
       }
 
       railItems.forEach((item) => {

@@ -17,7 +17,7 @@
 
 站点配置集中在 `index.html` 内的 `STATIONS` 数组：
 滚轮、鼠标拖动和触屏灵敏度分别由 `WHEEL_FRAMES_PER_PIXEL`、`DRAG_FRAMES_PER_PIXEL` 与 `TOUCH_FRAMES_PER_PIXEL` 控制，数值越大移动越快。
-追帧每次最大跨度由 `MAX_SCRUB_FRAME_STEP` 控制；`HARD_CUT_FRAMES` 记录母片硬切帧，网页会在这些位置同步加入短暗场遮罩。
+滚动或拖动会直接请求当前位置对应的最新目标帧，不再逐帧追赶；`HARD_CUT_FRAMES` 记录母片硬切帧，网页会在这些位置同步加入短暗场遮罩。
 
 | 状态 | 定格帧 | 内容 |
 |---|---:|---|
@@ -33,8 +33,8 @@
 
 - `assets/video/shot_01.mp4`：用户原始 15 秒母片的工作副本
 - `assets/reference/`：四张用户停顿参考图的工作副本
-- `assets/frames/shot_01/`：361 张桌面端 0-based WebP 帧序列
-- `assets/frames/shot_01_mobile/`：361 张手机端轻量 WebP 帧序列
+- `assets/frames/shot_01/`：361 张默认高清 0-based WebP 帧序列（桌面和手机共用）
+- `assets/frames/shot_01_mobile/`：361 张仅在系统开启“节省流量”时使用的轻量 WebP 帧序列
 - `tools/match_stations.py`：停顿参考图与视频帧的定位辅助脚本
 
 原始下载文件和临时附件未被修改。
