@@ -730,7 +730,7 @@
       const WARM_TRIGGER_DISTANCE = IS_MOBILE ? 12 : 8;
       const SCRUB_PREDICT_LEAD_MS = 300;
       const SCRUB_FORECAST_INTERVAL_MS = 64;
-      const MAX_SCRUB_FORECASTS = 4;
+      const MAX_SCRUB_FORECASTS = IS_MOBILE ? 3 : 4;
       const HARD_CUT_FRAMES = [94, 146, 270];
       const SCRUB_CUT_OPACITY = 0.72;
       const SCRUB_CUT_FADE_MS = 220;
@@ -1128,14 +1128,9 @@
         return true;
       }
 
-      function requestScrubForecast(now) {
-        if (Math.abs(scrubVelocity) < 0.01 || now - lastForecastAt < SCRUB_FORECAST_INTERVAL_MS) return;
+      function requestForecastFrame(frame, now) {
         if (activeForecastCount() >= MAX_SCRUB_FORECASTS) return;
-
-        const direction = Math.sign(scrubVelocity) || state.direction;
-        const maxLead = Math.max(1, CACHE_LONG_SIDE - 2);
-        const lead = clamp(Math.abs(scrubVelocity) * SCRUB_PREDICT_LEAD_MS, 4, maxLead);
-        const forecast = clamp(Math.round(state.scrubFrame + direction * lead), 0, LAST_FRAME);
+        const forecast = clamp(Math.round(frame), 0, LAST_FRAME);
         if (forecast === lastForecastFrame || cache.has(forecast) || inflight.has(forecast)) return;
 
         lastForecastAt = now;
@@ -1151,6 +1146,20 @@
             if (!isAbortError(error)) console.error(error);
           })
           .finally(() => trimCache(cacheIntentCenter()));
+      }
+
+      function requestScrubForecast(now) {
+        if (now - lastForecastAt < SCRUB_FORECAST_INTERVAL_MS) return;
+        const target = Math.round(state.scrubFrame);
+        if (Math.abs(scrubVelocity) < 0.01) {
+          requestForecastFrame(target, now);
+          return;
+        }
+
+        const direction = Math.sign(scrubVelocity) || state.direction;
+        const maxLead = Math.max(1, CACHE_LONG_SIDE - 2);
+        const lead = clamp(Math.abs(scrubVelocity) * SCRUB_PREDICT_LEAD_MS, 4, maxLead);
+        requestForecastFrame(state.scrubFrame + direction * lead, now);
       }
 
       function scheduleScrubRender() {
@@ -1191,13 +1200,26 @@
       function settleScrubIntent() {
         window.clearTimeout(scrubIdleTimer);
         document.body.classList.remove("is-scrubbing");
+        resetScrubForecastState();
+        state.scrubEpoch += 1;
+        cancelObsoleteScrubDecodes(Math.round(state.scrubFrame));
+        scheduleScrubRender();
+      }
+
+      function resetScrubForecastState() {
         lastScrubInputAt = 0;
         scrubVelocity = 0;
         lastForecastAt = 0;
         lastForecastFrame = null;
+      }
+
+      function cancelScrubForPlayback() {
+        window.clearTimeout(scrubIdleTimer);
+        window.clearTimeout(warmTimer);
+        document.body.classList.remove("is-scrubbing");
+        resetScrubForecastState();
         state.scrubEpoch += 1;
-        cancelObsoleteScrubDecodes(Math.round(state.scrubFrame));
-        scheduleScrubRender();
+        cancelObsoleteScrubDecodes(-1);
       }
 
       function scrubBy(frameDelta) {
@@ -1208,10 +1230,7 @@
         const directionChanged = inputDirection !== 0 && inputDirection !== state.direction;
         if (startingScrub || directionChanged) {
           state.scrubEpoch += 1;
-          lastScrubInputAt = 0;
-          scrubVelocity = 0;
-          lastForecastAt = 0;
-          lastForecastFrame = null;
+          resetScrubForecastState();
         }
         const elapsed = lastScrubInputAt > 0 ? clamp(now - lastScrubInputAt, 8, 80) : 32;
         const instantVelocity = frameDelta / elapsed;
@@ -1369,7 +1388,7 @@
 
         cancelPointerDrag();
         cancelTouchDrag();
-        state.scrubEpoch += 1;
+        cancelScrubForPlayback();
         state.playing = true;
         document.body.classList.add("is-playing");
         status.textContent = direction > 0 ? "Playing forward" : "Returning";
@@ -1400,7 +1419,7 @@
 
         cancelPointerDrag();
         cancelTouchDrag();
-        state.scrubEpoch += 1;
+        cancelScrubForPlayback();
         state.playing = true;
         document.body.classList.add("is-playing");
         status.textContent = "Jumping to scene";
@@ -1425,7 +1444,7 @@
         if (state.playing) return;
         cancelPointerDrag();
         cancelTouchDrag();
-        state.scrubEpoch += 1;
+        cancelScrubForPlayback();
         state.playing = true;
         document.body.classList.add("is-playing");
         endAudio();
