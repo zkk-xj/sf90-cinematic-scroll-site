@@ -3,8 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#070707">
-  <meta name="description" content="Ferrari SF90 Stradale — a cinematic, scroll-scrubbed experience.">
+  <meta name="theme-color" content="#020205">
+  <meta name="description" content="Ferrari SF90 Stradale — Maranello sculpture, directed by your scroll.">
+  <link rel="preload" href="assets/fonts/bodoni-moda-maranello-subset.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="icon" href="data:,">
   <title>SF90 Stradale — Beyond Performance</title>
   <style>
@@ -419,6 +420,8 @@
 
     body.is-playing .interaction-hint { opacity: 0; }
 
+    body:not([data-scene="presence"]) .interaction-hint { opacity: 0; }
+
     .interaction-hint__mouse {
       position: relative;
       width: 18px;
@@ -607,6 +610,498 @@
         transition-duration: 0.01ms !important;
       }
     }
+
+    /* Maranello Sculpture — selected visual direction */
+    @font-face {
+      font-family: "Maranello Display";
+      src: url("assets/fonts/bodoni-moda-maranello-subset.woff2") format("woff2");
+      font-style: normal;
+      font-weight: 400 900;
+      font-display: swap;
+    }
+
+    @font-face {
+      font-family: "Maranello Sans";
+      src: url("assets/fonts/noto-sans-sc-maranello-subset.woff2") format("woff2");
+      font-style: normal;
+      font-weight: 300 700;
+      font-display: swap;
+    }
+
+    :root {
+      --bg: #020205;
+      --ink: #f7f2e9;
+      --muted: #81786d;
+      --line: rgba(247, 242, 233, 0.22);
+      --red: #f20d22;
+      --page-x: clamp(28px, 3.8vw, 58px);
+    }
+
+    body {
+      font-family: "Maranello Sans", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+      font-synthesis: none;
+      background: var(--bg);
+    }
+
+    #fallback {
+      object-fit: contain;
+      object-position: 58% 58%;
+      background: var(--bg);
+    }
+
+    #stage { cursor: ns-resize; }
+
+    .grade {
+      background:
+        radial-gradient(circle at 4% 22%, rgba(120, 0, 10, 0.18), transparent 27%),
+        linear-gradient(90deg, rgba(2, 2, 5, 0.88) 0%, rgba(2, 2, 5, 0.58) 20%, rgba(2, 2, 5, 0.08) 47%, transparent 72%),
+        linear-gradient(180deg, rgba(2, 2, 5, 0.42) 0%, transparent 25%, transparent 72%, rgba(2, 2, 5, 0.4) 100%);
+    }
+
+    #cut-veil { background: var(--bg); }
+
+    .site-header {
+      padding: max(44px, env(safe-area-inset-top)) var(--page-x) 0;
+    }
+
+    .wordmark {
+      gap: 11px;
+      min-height: 24px;
+      letter-spacing: 0;
+    }
+
+    .wordmark__model {
+      font-family: "Maranello Sans", sans-serif;
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: -0.055em;
+    }
+
+    .wordmark__model::after { display: none; }
+
+    .wordmark__slash {
+      color: var(--red);
+      font-family: "Maranello Display", serif;
+      font-size: 26px;
+      font-weight: 700;
+      line-height: 1;
+      transform: skewX(-8deg);
+    }
+
+    .wordmark__series {
+      color: rgba(247, 242, 233, 0.62);
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 0.48em;
+    }
+
+    .sound-toggle {
+      min-width: 92px;
+      min-height: 44px;
+      padding: 0;
+      border: 0;
+      border-radius: 0;
+      color: rgba(247, 242, 233, 0.72);
+      background: transparent;
+      backdrop-filter: none;
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 0.28em;
+      text-align: right;
+    }
+
+    .sound-toggle:hover,
+    .sound-toggle:focus-visible {
+      color: var(--ink);
+      border-color: transparent;
+      background: transparent;
+      outline: 1px solid rgba(247, 242, 233, 0.3);
+      outline-offset: 5px;
+    }
+
+    .sound-toggle[aria-pressed="true"]::before {
+      width: 5px;
+      height: 5px;
+      margin-right: 9px;
+      box-shadow: none;
+    }
+
+    .chapter,
+    .chapter--outro {
+      top: clamp(154px, 17.2vh, 176px);
+      bottom: auto;
+      left: var(--page-x);
+      width: min(610px, 48vw);
+      transform: translateY(18px);
+      transition: opacity 520ms cubic-bezier(0.22, 1, 0.36, 1), transform 520ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .chapter.is-active { transform: translateY(0); }
+
+    .chapter__eyebrow {
+      gap: 11px;
+      min-height: 12px;
+      margin: 0 0 29px;
+      color: rgba(247, 242, 233, 0.67);
+      font-size: 10px;
+      font-weight: 650;
+      letter-spacing: 0.34em;
+      white-space: nowrap;
+    }
+
+    .chapter__eyebrow::before { display: none; }
+
+    .chapter__eyebrow::after {
+      content: "";
+      width: min(30vw, 420px);
+      height: 1px;
+      margin-left: 6px;
+      background: var(--line);
+    }
+
+    .chapter__number { color: var(--red); }
+    .chapter__slash { color: var(--red); }
+
+    .chapter__title,
+    .chapter--outro .chapter__title {
+      max-width: 610px;
+      margin: 0;
+      font-family: "Maranello Display", "Times New Roman", serif;
+      font-size: clamp(86px, 8.5vw, 122px);
+      font-optical-sizing: auto;
+      font-stretch: normal;
+      font-weight: 430;
+      letter-spacing: -0.052em;
+      line-height: 0.9;
+      text-shadow: none;
+    }
+
+    .chapter__title span { display: block; }
+
+    .chapter[data-station="0"] .chapter__title span:first-child {
+      letter-spacing: -0.075em;
+    }
+
+    .chapter__cn {
+      margin: 22px 0 0;
+      color: #bdb3a6;
+      font-size: clamp(16px, 1.45vw, 21px);
+      font-weight: 400;
+      letter-spacing: 0.24em;
+    }
+
+    .chapter__detail { display: none; }
+
+    .chapter[data-station="1"] .chapter__title,
+    .chapter[data-station="2"] .chapter__title {
+      font-size: clamp(72px, 6.25vw, 90px);
+    }
+
+    .chapter--outro { pointer-events: none; }
+
+    .chapter--outro .chapter__title {
+      font-size: clamp(70px, 6.4vw, 92px);
+    }
+
+    .replay {
+      min-height: 44px;
+      margin-top: 26px;
+      padding: 0;
+      border-bottom-color: rgba(247, 242, 233, 0.34);
+      font-size: 9px;
+      font-weight: 600;
+      letter-spacing: 0.25em;
+    }
+
+    .rail {
+      top: 33.2%;
+      right: calc(var(--page-x) - 9px);
+      gap: 35px;
+    }
+
+    .rail::before,
+    .rail::after {
+      top: 22px;
+      right: 5px;
+      height: calc(100% - 44px);
+      background: rgba(247, 242, 233, 0.16);
+    }
+
+    .rail::after {
+      height: calc((100% - 44px) * var(--progress));
+      background: var(--red);
+      box-shadow: none;
+    }
+
+    .rail__item {
+      width: 82px;
+      color: rgba(247, 242, 233, 0.42);
+    }
+
+    .rail__label {
+      opacity: 1;
+      transform: none;
+      font-size: 8px;
+      font-weight: 600;
+      letter-spacing: 0.2em;
+    }
+
+    .rail__dot {
+      width: 9px;
+      height: 9px;
+      border-color: rgba(247, 242, 233, 0.42);
+      background: var(--bg);
+    }
+
+    .rail__item:hover .rail__label,
+    .rail__item:focus-visible .rail__label,
+    .rail__item.is-active .rail__label { transform: none; }
+
+    .rail__item.is-active .rail__dot {
+      box-shadow: none;
+      transform: scale(0.74);
+    }
+
+    .interaction-hint {
+      left: var(--page-x);
+      top: 53%;
+      bottom: auto;
+      gap: 13px;
+      color: rgba(247, 242, 233, 0.48);
+      font-size: 8px;
+      font-weight: 600;
+      letter-spacing: 0.25em;
+    }
+
+    .interaction-hint__mouse {
+      width: 15px;
+      height: 24px;
+      border-color: rgba(247, 242, 233, 0.44);
+    }
+
+    .interaction-hint__mouse::after {
+      width: 1px;
+      height: 4px;
+      background: var(--red);
+    }
+
+    .spec-strip {
+      position: fixed;
+      z-index: 8;
+      left: var(--page-x);
+      bottom: max(48px, env(safe-area-inset-bottom));
+      display: flex;
+      align-items: flex-end;
+      gap: clamp(22px, 2.6vw, 42px);
+      pointer-events: none;
+    }
+
+    .spec {
+      position: relative;
+      min-width: 86px;
+    }
+
+    .spec + .spec::before {
+      content: "";
+      position: absolute;
+      left: calc(clamp(22px, 2.6vw, 42px) / -2);
+      top: 4px;
+      width: 1px;
+      height: 28px;
+      background: rgba(247, 242, 233, 0.18);
+    }
+
+    .spec__label,
+    .spec__value {
+      display: block;
+      text-transform: uppercase;
+    }
+
+    .spec__label {
+      margin-bottom: 8px;
+      color: var(--muted);
+      font-size: 7px;
+      font-weight: 600;
+      letter-spacing: 0.27em;
+    }
+
+    .spec__value {
+      color: rgba(247, 242, 233, 0.82);
+      font-size: 11px;
+      font-weight: 650;
+      letter-spacing: 0.1em;
+    }
+
+    .status {
+      right: var(--page-x);
+      bottom: max(48px, env(safe-area-inset-bottom));
+      color: rgba(247, 242, 233, 0.32);
+      font-size: 7px;
+      font-weight: 600;
+      letter-spacing: 0.24em;
+    }
+
+    .loading-screen {
+      background:
+        radial-gradient(circle at 50% 58%, rgba(95, 0, 10, 0.2), transparent 38%),
+        var(--bg);
+    }
+
+    .loading-kicker { letter-spacing: 0.38em; }
+
+    .loading-title {
+      font-family: "Maranello Display", "Times New Roman", serif;
+      font-size: clamp(72px, 11vw, 120px);
+      font-optical-sizing: auto;
+      font-weight: 430;
+      letter-spacing: -0.055em;
+      line-height: 0.86;
+    }
+
+    .enter-button {
+      min-height: 44px;
+      padding: 0 0 7px;
+      border: 0;
+      border-bottom: 1px solid rgba(247, 242, 233, 0.34);
+      border-radius: 0;
+    }
+
+    .enter-button:not(:disabled):hover,
+    .enter-button:not(:disabled):focus-visible {
+      color: var(--ink);
+      background: transparent;
+      border-color: var(--red);
+    }
+
+    @media (max-width: 760px) {
+      :root { --page-x: 20px; }
+
+      .grade {
+        background:
+          linear-gradient(180deg, rgba(2, 2, 5, 0.52) 0%, rgba(2, 2, 5, 0.06) 29%, transparent 58%, rgba(2, 2, 5, 0.4) 100%),
+          radial-gradient(circle at 2% 18%, rgba(120, 0, 10, 0.16), transparent 30%);
+      }
+
+      .site-header {
+        padding: max(20px, calc(env(safe-area-inset-top) + 18px)) var(--page-x) 0;
+      }
+
+      .wordmark__model { font-size: 20px; }
+      .wordmark__slash { font-size: 22px; }
+      .wordmark__series {
+        display: block;
+        font-size: 7px;
+        letter-spacing: 0.36em;
+      }
+
+      .sound-toggle {
+        min-width: 72px;
+        padding: 0;
+        font-size: 8px;
+        letter-spacing: 0.2em;
+      }
+
+      .chapter,
+      .chapter--outro {
+        top: max(108px, calc(env(safe-area-inset-top) + 98px));
+        bottom: auto;
+        left: var(--page-x);
+        width: calc(100vw - 40px);
+      }
+
+      .chapter__eyebrow {
+        margin-bottom: 23px;
+        font-size: 8px;
+        letter-spacing: 0.28em;
+      }
+
+      .chapter__eyebrow::after {
+        width: min(36vw, 140px);
+      }
+
+      .chapter__title,
+      .chapter--outro .chapter__title {
+        max-width: 90vw;
+        font-size: clamp(52px, 15.8vw, 66px);
+        line-height: 0.9;
+        letter-spacing: -0.05em;
+      }
+
+      .chapter[data-station="1"] .chapter__title,
+      .chapter[data-station="2"] .chapter__title {
+        font-size: clamp(48px, 14.5vw, 61px);
+      }
+
+      .chapter__cn {
+        margin-top: 15px;
+        font-size: 15px;
+        letter-spacing: 0.18em;
+      }
+
+      .replay { margin-top: 20px; }
+
+      .rail {
+        top: auto;
+        right: 16px;
+        bottom: max(107px, calc(env(safe-area-inset-bottom) + 91px));
+        left: 16px;
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 0;
+        transform: none;
+      }
+
+      .rail::before,
+      .rail::after {
+        top: 22px;
+        right: auto;
+        left: 12.5%;
+        width: 75%;
+        height: 1px;
+      }
+
+      .rail::after {
+        width: calc(75% * var(--progress));
+        height: 1px;
+      }
+
+      .rail__item {
+        width: 100%;
+        min-height: 44px;
+        justify-content: center;
+        flex-direction: column-reverse;
+        gap: 7px;
+      }
+
+      .rail__label {
+        display: block;
+        font-size: 7px;
+      }
+
+      .rail__dot { background: var(--bg); }
+
+      .interaction-hint {
+        top: 35.2%;
+        left: var(--page-x);
+      }
+
+      .interaction-hint__copy { display: block; font-size: 7px; }
+      .interaction-hint__mouse { display: none; }
+
+      .spec-strip {
+        right: var(--page-x);
+        bottom: max(25px, env(safe-area-inset-bottom));
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 11px 24px;
+      }
+
+      .spec { min-width: 0; }
+      .spec + .spec::before { display: none; }
+      .spec__label { margin-bottom: 3px; font-size: 6px; }
+      .spec__value { font-size: 9px; }
+      .status { display: none; }
+    }
   </style>
 </head>
 <body>
@@ -626,7 +1121,8 @@
   <header class="site-header">
     <div class="wordmark" aria-label="SF90 Stradale">
       <span class="wordmark__model">SF90</span>
-      <span class="wordmark__series">Stradale · Hybrid performance</span>
+      <span class="wordmark__slash" aria-hidden="true">/</span>
+      <span class="wordmark__series">Stradale</span>
     </div>
     <div class="header-actions">
       <button id="sound-toggle" class="sound-toggle" type="button" aria-pressed="false">Sound off</button>
@@ -635,70 +1131,69 @@
 
   <main id="chapters">
     <section class="chapter is-active" data-station="0" aria-hidden="false">
-      <p class="chapter__eyebrow">01 · Presence</p>
-      <h2 class="chapter__title">Light shapes speed</h2>
-      <p class="chapter__cn">光，勾勒速度</p>
-      <div class="chapter__detail"><span>Rosso</span><span>SF90 Stradale</span></div>
+      <p class="chapter__eyebrow"><span class="chapter__number">01</span><span class="chapter__slash">/</span><span>Presence</span></p>
+      <h2 class="chapter__title"><span>Sculpted</span><span>By Speed</span></h2>
+      <p class="chapter__cn">光，塑造速度</p>
     </section>
 
     <section class="chapter" data-station="1" aria-hidden="true">
-      <p class="chapter__eyebrow">02 · Proportion</p>
-      <h2 class="chapter__title">Cab forward</h2>
-      <p class="chapter__cn">座舱向前，动势由此开始</p>
-      <div class="chapter__detail"><span>Sculpted body</span><span>Driver first</span></div>
+      <p class="chapter__eyebrow"><span class="chapter__number">02</span><span class="chapter__slash">/</span><span>Architecture</span></p>
+      <h2 class="chapter__title"><span>Designed</span><span>Around Air</span></h2>
+      <p class="chapter__cn">空气，雕刻车身</p>
     </section>
 
     <section class="chapter" data-station="2" aria-hidden="true">
-      <p class="chapter__eyebrow">03 · Interface</p>
-      <h2 class="chapter__title">Digital. Around you.</h2>
-      <p class="chapter__cn">数字，环绕驾驶者</p>
-      <div class="chapter__detail"><span>Curved display</span><span>Focused control</span></div>
+      <p class="chapter__eyebrow"><span class="chapter__number">03</span><span class="chapter__slash">/</span><span>Connection</span></p>
+      <h2 class="chapter__title"><span>Built</span><span>Around You</span></h2>
+      <p class="chapter__cn">数字，连接驾驶者</p>
     </section>
 
     <section class="chapter" data-station="3" aria-hidden="true">
-      <p class="chapter__eyebrow">04 · Signature</p>
-      <h2 class="chapter__title">From behind</h2>
-      <p class="chapter__cn">一眼识别的背影</p>
-      <div class="chapter__detail"><span>Low stance</span><span>High exhaust</span></div>
+      <p class="chapter__eyebrow"><span class="chapter__number">04</span><span class="chapter__slash">/</span><span>Release</span></p>
+      <h2 class="chapter__title"><span>The Road</span><span>Ignites</span></h2>
+      <p class="chapter__cn">性能，在此释放</p>
     </section>
 
     <section class="chapter chapter--outro" data-station="4" aria-hidden="true">
-      <p class="chapter__eyebrow">The new dimension</p>
-      <h2 class="chapter__title">SF90 Stradale</h2>
-      <p class="chapter__cn">性能，自此进入新维度</p>
+      <p class="chapter__eyebrow"><span class="chapter__number">04</span><span class="chapter__slash">/</span><span>Release</span></p>
+      <h2 class="chapter__title"><span>Beyond</span><span>Performance</span></h2>
+      <p class="chapter__cn">性能，超越数字</p>
       <button id="replay" class="replay" type="button">Replay / 重新播放</button>
     </section>
   </main>
 
   <nav class="rail" aria-label="章节导航">
-    <button class="rail__item is-active" type="button" data-target="0" aria-label="前脸章节">
-      <span class="rail__label">01</span><span class="rail__dot"></span>
+    <button class="rail__item is-active" type="button" data-target="0" aria-label="Presence 章节">
+      <span class="rail__label">01</span><span class="rail__dot" aria-hidden="true"></span>
     </button>
-    <button class="rail__item" type="button" data-target="1" aria-label="车身章节">
-      <span class="rail__label">02</span><span class="rail__dot"></span>
+    <button class="rail__item" type="button" data-target="1" aria-label="Architecture 章节">
+      <span class="rail__label">02</span><span class="rail__dot" aria-hidden="true"></span>
     </button>
-    <button class="rail__item" type="button" data-target="2" aria-label="座舱章节">
-      <span class="rail__label">03</span><span class="rail__dot"></span>
+    <button class="rail__item" type="button" data-target="2" aria-label="Connection 章节">
+      <span class="rail__label">03</span><span class="rail__dot" aria-hidden="true"></span>
     </button>
-    <button class="rail__item" type="button" data-target="3" aria-label="车尾章节">
-      <span class="rail__label">04</span><span class="rail__dot"></span>
-    </button>
-    <button class="rail__item" type="button" data-target="4" aria-label="结尾章节">
-      <span class="rail__label">End</span><span class="rail__dot"></span>
+    <button class="rail__item" type="button" data-target="3" aria-label="Release 章节">
+      <span class="rail__label">04</span><span class="rail__dot" aria-hidden="true"></span>
     </button>
   </nav>
 
   <div class="interaction-hint" aria-hidden="true">
     <span class="interaction-hint__mouse"></span>
-    <span class="interaction-hint__copy">Scroll or drag / 滚动或拖动探索</span>
+    <span class="interaction-hint__copy">Scroll or drag to direct / 滚动或拖动导演镜头</span>
+  </div>
+  <div class="spec-strip" aria-label="SF90 Stradale 关键规格">
+    <div class="spec"><span class="spec__label">Powertrain</span><span class="spec__value">V8 Hybrid</span></div>
+    <div class="spec"><span class="spec__label">Maximum power</span><span class="spec__value">1,000 cv</span></div>
+    <div class="spec"><span class="spec__label">0–100 km/h</span><span class="spec__value">2.5 s</span></div>
+    <div class="spec"><span class="spec__label">Top speed</span><span class="spec__value">340 km/h</span></div>
   </div>
   <div id="status" class="status" aria-live="polite">Scene 01 / 04</div>
 
   <div id="loading-screen" class="loading-screen">
     <div class="loading-panel">
-      <p class="loading-kicker">Cinematic experience</p>
+      <p class="loading-kicker">Maranello sculpture</p>
       <p class="loading-title">SF90</p>
-      <p class="loading-subtitle">Stradale · Beyond performance</p>
+      <p class="loading-subtitle">Stradale · Directed by your scroll</p>
       <div class="loading-track" aria-hidden="true"><div id="loading-fill" class="loading-fill"></div></div>
       <div class="loading-meta"><span id="loading-label">Preparing first scene</span><span id="loading-value">0%</span></div>
       <button id="enter-button" class="enter-button" type="button" disabled>Loading / 正在加载</button>
@@ -736,11 +1231,50 @@
       const SCRUB_CUT_FADE_MS = 220;
       const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       const STATIONS = [
-        { id: "origin", hold: 0 },
-        { id: "form", hold: 94, enter: { from: 0, to: 93, cutTo: 94, dur: 3875 } },
-        { id: "cockpit", hold: 146, enter: { from: 94, to: 145, cutTo: 146, dur: 2125 } },
-        { id: "signature", hold: 270, enter: { from: 146, to: 269, cutTo: 270, dur: 5125 } },
-        { id: "outro", hold: 360, enter: { from: 270, to: 360, dur: 3750 } }
+        {
+          id: "presence",
+          hold: 0,
+          view: {
+            desktop: { width: 0.91, x: 0.104, y: 0.22 },
+            mobile: { width: 1.05, x: -0.025, y: 0.36 }
+          }
+        },
+        {
+          id: "architecture",
+          hold: 94,
+          enter: { from: 0, to: 93, cutTo: 94, dur: 3875 },
+          view: {
+            desktop: { width: 0.92, x: 0.08, y: 0.27 },
+            mobile: { width: 0.98, x: 0.02, y: 0.39 }
+          }
+        },
+        {
+          id: "connection",
+          hold: 146,
+          enter: { from: 94, to: 145, cutTo: 146, dur: 2125 },
+          view: {
+            desktop: { width: 0.96, x: 0.04, y: 0.22 },
+            mobile: { width: 1.04, x: -0.02, y: 0.38 }
+          }
+        },
+        {
+          id: "release",
+          hold: 270,
+          enter: { from: 146, to: 269, cutTo: 270, dur: 5125 },
+          view: {
+            desktop: { width: 0.94, x: 0.045, y: 0.18 },
+            mobile: { width: 1.04, x: -0.02, y: 0.37 }
+          }
+        },
+        {
+          id: "outro",
+          hold: 360,
+          enter: { from: 270, to: 360, dur: 3750 },
+          view: {
+            desktop: { width: 0.89, x: 0.07, y: 0.22 },
+            mobile: { width: 1.01, x: -0.005, y: 0.39 }
+          }
+        }
       ];
 
       const canvas = document.querySelector("#stage");
@@ -1009,21 +1543,20 @@
         canvas.width = Math.max(1, Math.round(window.innerWidth * dpr));
         canvas.height = Math.max(1, Math.round(window.innerHeight * dpr));
         const current = cache.get(state.frame);
-        if (current) drawEntry(current.drawable);
+        if (current) drawEntry(current.drawable, state.frame);
       }
 
-      function drawEntry(drawable) {
+      function drawEntry(drawable, frame = state.frame) {
         const sourceWidth = drawable.width || drawable.naturalWidth;
         const sourceHeight = drawable.height || drawable.naturalHeight;
         const portrait = window.innerWidth / window.innerHeight < 0.82;
-        const scale = portrait
-          ? Math.min(canvas.width / sourceWidth, canvas.height / sourceHeight)
-          : Math.max(canvas.width / sourceWidth, canvas.height / sourceHeight);
-        const width = sourceWidth * scale;
-        const height = sourceHeight * scale;
-        const x = (canvas.width - width) / 2;
-        const y = (canvas.height - height) / 2;
-        context.fillStyle = "#050505";
+        const station = STATIONS[stationForFrame(frame)];
+        const view = station.view[portrait ? "mobile" : "desktop"];
+        const width = canvas.width * view.width;
+        const height = width * (sourceHeight / sourceWidth);
+        const x = canvas.width * view.x;
+        const y = canvas.height * view.y;
+        context.fillStyle = "#020205";
         context.fillRect(0, 0, canvas.width, canvas.height);
         context.drawImage(drawable, x, y, width, height);
       }
@@ -1034,7 +1567,7 @@
       }
 
       function commitFrame(frame, entry) {
-        drawEntry(entry.drawable);
+        drawEntry(entry.drawable, frame);
         state.frame = frame;
         canvas.dataset.frame = String(frame);
         updateProgress(frame);
@@ -1068,14 +1601,16 @@
 
       function settleStation(index) {
         state.station = index;
+        document.body.dataset.scene = STATIONS[index].id;
         chapters.forEach((chapter, chapterIndex) => {
           const active = chapterIndex === index;
           chapter.classList.toggle("is-active", active);
           chapter.setAttribute("aria-hidden", String(!active));
         });
+        const railIndex = Math.min(index, railItems.length - 1);
         railItems.forEach((item, itemIndex) => {
-          item.classList.toggle("is-active", itemIndex === index);
-          item.setAttribute("aria-current", itemIndex === index ? "step" : "false");
+          item.classList.toggle("is-active", itemIndex === railIndex);
+          item.setAttribute("aria-current", itemIndex === railIndex ? "step" : "false");
         });
         const visibleNumber = index === STATIONS.length - 1 ? "END" : `0${index + 1} / 04`;
         status.textContent = `Scene ${visibleNumber}`;
