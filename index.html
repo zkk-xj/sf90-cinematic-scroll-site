@@ -1412,7 +1412,9 @@
       const decodeQueue = [];
       const queuedDecodes = new Map();
       const activeDecodeTasks = new Map();
+      const renderProtectionCounts = new Map();
       const pinned = new Set(STATIONS.map((station) => station.hold));
+      let visibleResourceKeys = new Set();
       let activeDecodes = 0;
       let activeBackgroundDecodes = 0;
       let decodeOrder = 0;
@@ -1440,6 +1442,20 @@
         `assets/frames/${profile.directory}/frame_${String(index).padStart(4, "0")}.webp`;
       const cachedFrame = (index, profile = FULL_PROFILE) => cache.get(resourceKey(index, profile));
       const hasCachedFrame = (index, profile = FULL_PROFILE) => cache.has(resourceKey(index, profile));
+      const protectRenderFrames = (frames, profile) => {
+        const keys = [...new Set(frames.map((frame) => resourceKey(frame, profile)))];
+        for (const key of keys) {
+          renderProtectionCounts.set(key, (renderProtectionCounts.get(key) || 0) + 1);
+        }
+        return keys;
+      };
+      const releaseRenderFrames = (keys) => {
+        for (const key of keys) {
+          const next = (renderProtectionCounts.get(key) || 1) - 1;
+          if (next > 0) renderProtectionCounts.set(key, next);
+          else renderProtectionCounts.delete(key);
+        }
+      };
       const desiredScrubProfile = () => document.body.classList.contains("is-scrubbing")
         ? MOTION_PROFILE
         : SETTLED_PROFILE;
@@ -1579,6 +1595,7 @@
           const min = Math.max(0, center - behind);
           const max = Math.min(LAST_FRAME, center + ahead);
           const keep = pinned.has(entry.frame) || key === requestedKey || key === drawnKey || key === protectedKey ||
+            visibleResourceKeys.has(key) || renderProtectionCounts.has(key) ||
             (entry.frame >= min && entry.frame <= max);
           if (!keep) {
             if (entry.disposable && typeof entry.drawable.close === "function") entry.drawable.close();
@@ -1808,6 +1825,7 @@
         ensureCanvasProfile(entry.profile);
         drawEntry(entry.drawable, frame);
         lastDrawComposition = { type: "single", entry, frame };
+        visibleResourceKeys = new Set([resourceKey(entry.frame, entry.profile)]);
         finalizeCommit(frame, entry.profile);
       }
 
@@ -1815,6 +1833,10 @@
         ensureCanvasProfile(profile);
         drawBlendEntries(lower, upper, mix, frame);
         lastDrawComposition = { type: "blend", lower, upper, mix, frame };
+        visibleResourceKeys = new Set([
+          resourceKey(lower.frame, lower.profile),
+          resourceKey(upper.frame, upper.profile)
+        ]);
         finalizeCommit(frame, profile);
       }
 
@@ -1829,59 +1851,68 @@
 
       async function renderFrame(index, force = false, scrubEpoch = null, profile = SETTLED_PROFILE) {
         const frame = clamp(Math.round(index), 0, LAST_FRAME);
+        const protectedKeys = protectRenderFrames([frame], profile);
         state.requestedFrame = frame;
         state.requestedProfile = profile.id;
-        const entry = await loadFrame(frame, scrubEpoch === null ? 2 : 3,
-          scrubEpoch === null ? "general" : "scrub", profile);
-        if (scrubEpoch !== null && scrubEpoch !== state.scrubEpoch) {
+        try {
+          const entry = await loadFrame(frame, scrubEpoch === null ? 2 : 3,
+            scrubEpoch === null ? "general" : "scrub", profile);
+          if (scrubEpoch !== null && scrubEpoch !== state.scrubEpoch) return false;
+          if (!force && (state.requestedFrame !== frame || state.requestedProfile !== profile.id)) return false;
+          commitFrame(frame, entry);
+          return true;
+        } finally {
+          releaseRenderFrames(protectedKeys);
           trimCache(cacheIntentCenter());
-          return false;
         }
-        if (!force && (state.requestedFrame !== frame || state.requestedProfile !== profile.id)) {
-          trimCache(cacheIntentCenter());
-          return false;
-        }
-        commitFrame(frame, entry);
-        return true;
       }
 
       async function renderMotionBlend(index, scrubEpoch, profile = MOTION_PROFILE) {
         const frame = clamp(Math.round(index), 0, LAST_FRAME);
         const blend = motionBlendFor(frame, profile);
+        const protectedKeys = protectRenderFrames([blend.lower, blend.upper], profile);
         state.requestedFrame = frame;
         state.requestedProfile = profile.id;
-        const [lower, upper] = await Promise.all([
-          loadFrame(blend.lower, 3, "scrub", profile),
-          blend.upper === blend.lower
-            ? loadFrame(blend.lower, 3, "scrub", profile)
-            : loadFrame(blend.upper, 3, "scrub", profile)
-        ]);
-        if (scrubEpoch !== state.scrubEpoch || state.requestedFrame !== frame ||
-            state.requestedProfile !== profile.id) {
+        try {
+          const [lower, upper] = await Promise.all([
+            loadFrame(blend.lower, 3, "scrub", profile),
+            blend.upper === blend.lower
+              ? loadFrame(blend.lower, 3, "scrub", profile)
+              : loadFrame(blend.upper, 3, "scrub", profile)
+          ]);
+          if (scrubEpoch !== state.scrubEpoch || state.requestedFrame !== frame ||
+              state.requestedProfile !== profile.id) return false;
+          commitBlendFrame(frame, lower, upper, blend.mix, profile);
+          return true;
+        } finally {
+          releaseRenderFrames(protectedKeys);
           trimCache(cacheIntentCenter());
-          return false;
         }
-        commitBlendFrame(frame, lower, upper, blend.mix, profile);
-        return true;
       }
 
       async function renderSettledMotionPreview(index, scrubEpoch) {
         if (!USES_MOTION_PROXY || SETTLED_PROFILE.id !== "full") return false;
         const frame = clamp(Math.round(index), 0, LAST_FRAME);
         const blend = motionBlendFor(frame, MOTION_PROFILE);
-        const [lower, upper] = await Promise.all([
-          loadFrame(blend.lower, 4, "settle-preview", MOTION_PROFILE),
-          blend.upper === blend.lower
-            ? loadFrame(blend.lower, 4, "settle-preview", MOTION_PROFILE)
-            : loadFrame(blend.upper, 4, "settle-preview", MOTION_PROFILE)
-        ]);
-        if (scrubEpoch !== state.scrubEpoch || state.playing ||
-            Math.round(state.scrubFrame) !== frame || state.drawnProfile === "full") return false;
-        const from = state.frame;
-        commitBlendFrame(frame, lower, upper, blend.mix, MOTION_PROFILE);
-        if (crossedHardCut(from, frame)) pulseCutVeil();
-        syncStationToFrame(frame);
-        return true;
+        const protectedKeys = protectRenderFrames([blend.lower, blend.upper], MOTION_PROFILE);
+        try {
+          const [lower, upper] = await Promise.all([
+            loadFrame(blend.lower, 4, "settle-preview", MOTION_PROFILE),
+            blend.upper === blend.lower
+              ? loadFrame(blend.lower, 4, "settle-preview", MOTION_PROFILE)
+              : loadFrame(blend.upper, 4, "settle-preview", MOTION_PROFILE)
+          ]);
+          if (scrubEpoch !== state.scrubEpoch || state.playing ||
+              Math.round(state.scrubFrame) !== frame || state.drawnProfile === "full") return false;
+          const from = state.frame;
+          commitBlendFrame(frame, lower, upper, blend.mix, MOTION_PROFILE);
+          if (crossedHardCut(from, frame)) pulseCutVeil();
+          syncStationToFrame(frame);
+          return true;
+        } finally {
+          releaseRenderFrames(protectedKeys);
+          trimCache(cacheIntentCenter());
+        }
       }
 
       function stationForFrame(frame) {
