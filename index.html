@@ -1317,7 +1317,6 @@
       const SCRUB_PREDICT_LEAD_MS = 300;
       const SCRUB_FORECAST_INTERVAL_MS = 64;
       const MAX_SCRUB_FORECASTS = 1;
-      const FULL_REFINE_DELAY_MS = 360;
       const HARD_CUT_FRAMES = [94, 146, 270];
       const SCRUB_CUT_OPACITY = 0.72;
       const SCRUB_CUT_FADE_MS = 220;
@@ -1420,7 +1419,6 @@
       let decodeOrder = 0;
       let scrubRenderRaf = 0;
       let scrubIdleTimer = 0;
-      let refineTimer = 0;
       let warmTimer = 0;
       let lastScrubInputAt = 0;
       let scrubVelocity = 0;
@@ -1456,9 +1454,7 @@
           else renderProtectionCounts.delete(key);
         }
       };
-      const desiredScrubProfile = () => document.body.classList.contains("is-scrubbing")
-        ? MOTION_PROFILE
-        : SETTLED_PROFILE;
+      const desiredScrubProfile = () => MOTION_PROFILE;
       const motionFrameFor = (index, profile = MOTION_PROFILE) => {
         const frame = clamp(Math.round(index), 0, LAST_FRAME);
         if (profile.id === "full" || MOTION_FRAME_STEP <= 1) return frame;
@@ -1765,12 +1761,16 @@
         const portrait = window.innerWidth / window.innerHeight < 0.82;
         const viewKey = portrait ? "mobile" : "desktop";
         const maxViewWidth = Math.max(...STATIONS.map((station) => station.view[viewKey].width));
-        const sourceWidth = FRAME_SOURCE_WIDTHS[profile.id] || FRAME_SOURCE_WIDTHS.full;
+        const surfaceProfile = USES_MOTION_PROXY ? MOTION_PROFILE : profile;
+        const sourceWidth = FRAME_SOURCE_WIDTHS[surfaceProfile.id] || FRAME_SOURCE_WIDTHS.full;
         const sourceCappedScale = sourceWidth / Math.max(1, window.innerWidth * maxViewWidth);
         const dpr = Math.min(window.devicePixelRatio || 1, MAX_CANVAS_DPR, sourceCappedScale);
         const nextWidth = Math.max(1, Math.round(window.innerWidth * dpr));
         const nextHeight = Math.max(1, Math.round(window.innerHeight * dpr));
-        if (canvas.width === nextWidth && canvas.height === nextHeight && canvasProfileId === profile.id) return;
+        if (canvas.width === nextWidth && canvas.height === nextHeight) {
+          canvasProfileId = profile.id;
+          return;
+        }
         canvas.width = nextWidth;
         canvas.height = nextHeight;
         canvasProfileId = profile.id;
@@ -1893,6 +1893,7 @@
       async function renderSettledMotionPreview(index, scrubEpoch) {
         if (!USES_MOTION_PROXY || SETTLED_PROFILE.id !== "full") return false;
         const frame = clamp(Math.round(index), 0, LAST_FRAME);
+        if (state.frame === frame && state.drawnProfile === MOTION_PROFILE.id) return true;
         const blend = motionBlendFor(frame, MOTION_PROFILE);
         const protectedKeys = protectRenderFrames([blend.lower, blend.upper], MOTION_PROFILE);
         try {
@@ -2100,20 +2101,11 @@
         resetScrubForecastState();
         state.scrubEpoch += 1;
         const settleEpoch = state.scrubEpoch;
-        cancelObsoleteScrubDecodes(target, true, SETTLED_PROFILE);
+        cancelObsoleteScrubDecodes(target, true, MOTION_PROFILE,
+          [...new Set([motionBlend.lower, motionBlend.upper])]);
         void renderSettledMotionPreview(target, settleEpoch).catch((error) => {
           if (!isAbortError(error)) console.error(error);
         });
-        window.clearTimeout(refineTimer);
-        const requestSettledFrame = () => {
-          if (settleEpoch === state.scrubEpoch && !state.playing &&
-              Math.round(state.scrubFrame) === target) scheduleScrubRender();
-        };
-        if (USES_MOTION_PROXY && SETTLED_PROFILE.id === "full") {
-          refineTimer = window.setTimeout(requestSettledFrame, FULL_REFINE_DELAY_MS);
-        } else {
-          requestSettledFrame();
-        }
       }
 
       function resetScrubForecastState() {
@@ -2125,7 +2117,6 @@
 
       function cancelScrubForPlayback() {
         window.clearTimeout(scrubIdleTimer);
-        window.clearTimeout(refineTimer);
         window.clearTimeout(warmTimer);
         cancelAnimationFrame(scrubRenderRaf);
         scrubRenderRaf = 0;
@@ -2160,7 +2151,6 @@
           cancelObsoleteScrubDecodes(nextTarget, true, MOTION_PROFILE, nextMotionFrames);
         }
         document.body.classList.add("is-scrubbing");
-        window.clearTimeout(refineTimer);
         if (MOTION_PROFILE.id !== "full" && hasCachedFrame(nextBlend.lower, MOTION_PROFILE) &&
             hasCachedFrame(nextBlend.upper, MOTION_PROFILE)) {
           const from = state.frame;
