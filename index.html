@@ -1470,10 +1470,11 @@
           const selected = frame < hardCut ? lower : upper;
           return { lower: selected, upper: selected, mix: 0 };
         }
+        const selected = frame - lower < upper - frame ? lower : upper;
         return {
-          lower,
-          upper,
-          mix: upper === lower ? 0 : (frame - lower) / (upper - lower)
+          lower: selected,
+          upper: selected,
+          mix: 0
         };
       };
       const cacheIntentCenter = () => Math.round(state.playing ? state.requestedFrame : state.scrubFrame);
@@ -1808,12 +1809,6 @@
 
       function drawBlendEntries(lower, upper, mix, frame) {
         drawEntry(lower.drawable, frame);
-        if (upper !== lower && mix > 0) {
-          context.save();
-          context.globalAlpha = mix;
-          drawEntry(upper.drawable, frame);
-          context.restore();
-        }
       }
 
       function updateProgress(frame) {
