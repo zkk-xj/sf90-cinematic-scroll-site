@@ -1335,32 +1335,39 @@
         lite: Object.freeze({ id: "lite", directory: "shot_01_mobile" })
       });
       const FULL_PROFILE = FRAME_PROFILES.full;
-      const MOTION_PROFILE = USE_LIGHTWEIGHT_FRAMES
-        ? FRAME_PROFILES.lite
-        : IS_MOBILE ? FRAME_PROFILES.motion : FRAME_PROFILES.proxy;
-      const SETTLED_PROFILE = USE_LIGHTWEIGHT_FRAMES ? FRAME_PROFILES.lite : FULL_PROFILE;
+      // Exact single-frame profiles keep direct manipulation crisp without alpha-blend ghosting.
+      const MOTION_PROFILE = IS_MOBILE ? FRAME_PROFILES.lite : FULL_PROFILE;
+      const SETTLED_PROFILE = MOTION_PROFILE;
       const USES_MOTION_PROXY = MOTION_PROFILE.id !== SETTLED_PROFILE.id;
       const FRAME_SOURCE_WIDTHS = Object.freeze({ full: 1254, proxy: 960, motion: 704, lite: 720 });
+      const MOTION_TUNING = Object.freeze({
+        frameStep: 1,
+        initialDecodeCount: IS_MOBILE ? 10 : 8,
+        bootstrapPrefetchCount: IS_MOBILE ? 64 : 48,
+        wheelIdleMs: 260,
+        releaseHoldMs: 110,
+        cutOpacity: 0.28,
+        cutFadeMs: 110
+      });
       const MAX_DECODE_CONCURRENCY = IS_MOBILE ? 2 : 4;
       const MAX_BACKGROUND_DECODE_CONCURRENCY = 1;
       const MAX_CANVAS_DPR = IS_MOBILE ? (USE_LIGHTWEIGHT_FRAMES ? 1.75 : 2) : 1.75;
-      const CACHE_SHORT_SIDE = IS_MOBILE ? 4 : 6;
-      const CACHE_LONG_SIDE = IS_MOBILE ? (USE_LIGHTWEIGHT_FRAMES ? 28 : 18) : 15;
-      const INITIAL_DECODE_COUNT = USES_MOTION_PROXY ? (IS_MOBILE ? 5 : 4) : 19;
-      const MOTION_FRAME_STEP = USES_MOTION_PROXY ? 5 : 1;
-      const BOOTSTRAP_PREFETCH_COUNT = USES_MOTION_PROXY
-        ? Math.floor(LAST_FRAME / MOTION_FRAME_STEP) + 1
-        : 0;
-      const PREFETCH_CONCURRENCY = 6;
+      const CACHE_SHORT_SIDE = 4;
+      const CACHE_LONG_SIDE = IS_MOBILE ? 18 : 12;
+      const INITIAL_DECODE_COUNT = MOTION_TUNING.initialDecodeCount;
+      const MOTION_FRAME_STEP = MOTION_TUNING.frameStep;
+      const BOOTSTRAP_PREFETCH_COUNT = MOTION_TUNING.bootstrapPrefetchCount;
+      const PREFETCH_CONCURRENCY = IS_MOBILE ? 4 : 6;
       const BACKGROUND_PREFETCH_CONCURRENCY = 1;
+      const ALLOW_BACKGROUND_PREFETCH = CONNECTION?.saveData !== true;
       const WARM_RADIUS = IS_MOBILE ? 10 : 12;
       const WARM_TRIGGER_DISTANCE = IS_MOBILE ? 12 : 8;
       const SCRUB_PREDICT_LEAD_MS = 300;
       const SCRUB_FORECAST_INTERVAL_MS = 64;
       const MAX_SCRUB_FORECASTS = 1;
       const HARD_CUT_FRAMES = [94, 146, 270];
-      const SCRUB_CUT_OPACITY = 0.72;
-      const SCRUB_CUT_FADE_MS = 220;
+      const SCRUB_CUT_OPACITY = MOTION_TUNING.cutOpacity;
+      const SCRUB_CUT_FADE_MS = MOTION_TUNING.cutFadeMs;
       const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       const STATIONS = [
         {
@@ -1862,7 +1869,7 @@
         drawEntry(entry.drawable, frame);
         lastDrawComposition = { type: "single", entry, frame };
         visibleResourceKeys = new Set([resourceKey(entry.frame, entry.profile)]);
-        finalizeCommit(frame, entry.profile);
+        finalizeCommit(frame, entry.profile, entry.frame);
       }
 
       function commitBlendFrame(frame, lower, upper, mix, profile) {
@@ -1873,14 +1880,15 @@
           resourceKey(lower.frame, lower.profile),
           resourceKey(upper.frame, upper.profile)
         ]);
-        finalizeCommit(frame, profile);
+        finalizeCommit(frame, profile, lower.frame);
       }
 
-      function finalizeCommit(frame, profile) {
+      function finalizeCommit(frame, profile, sourceFrame = frame) {
         state.frame = frame;
         state.drawnProfile = profile.id;
         canvas.dataset.quality = profile.id === "full" ? "full" : "proxy";
         canvas.dataset.frame = String(frame);
+        canvas.dataset.sourceFrame = String(sourceFrame);
         updateProgress(frame);
         trimCache(cacheIntentCenter());
       }
@@ -2091,7 +2099,8 @@
           const exactRender = profile.id !== "full"
             ? renderMotionBlend(target, scrubEpoch, profile)
             : renderFrame(target, false, scrubEpoch, profile);
-          if (document.body.classList.contains("is-scrubbing") && !targetWasCached) {
+          if (MOTION_FRAME_STEP > 1 && document.body.classList.contains("is-scrubbing") &&
+              !targetWasCached) {
             commitBestCachedScrubFrame(profile);
           }
           const exactFrom = state.frame;
@@ -2142,6 +2151,11 @@
         void renderSettledMotionPreview(target, settleEpoch).catch((error) => {
           if (!isAbortError(error)) console.error(error);
         });
+      }
+
+      function scheduleScrubSettle(delay = MOTION_TUNING.wheelIdleMs) {
+        window.clearTimeout(scrubIdleTimer);
+        scrubIdleTimer = window.setTimeout(settleScrubIntent, delay);
       }
 
       function resetScrubForecastState() {
@@ -2198,9 +2212,8 @@
           syncStationToFrame(nextTarget);
           requestScrubForecast(now, MOTION_PROFILE);
         }
-        window.clearTimeout(scrubIdleTimer);
         window.clearTimeout(warmTimer);
-        scrubIdleTimer = window.setTimeout(settleScrubIntent, 160);
+        scheduleScrubSettle();
         warmTimer = window.setTimeout(() => {
           if (!USES_MOTION_PROXY && !state.playing &&
               Math.abs(state.scrubFrame - state.frame) < 1) {
@@ -2450,7 +2463,7 @@
       function endPointerDrag(event) {
         if (!state.dragging || event.pointerId !== dragPointerId) return;
         cancelPointerDrag();
-        settleScrubIntent();
+        scheduleScrubSettle(MOTION_TUNING.releaseHoldMs);
       }
 
       function handleKey(event) {
@@ -2498,7 +2511,7 @@
         const ended = [...event.changedTouches].some((item) => item.identifier === touchIdentifier);
         if (ended) {
           cancelTouchDrag();
-          settleScrubIntent();
+          scheduleScrubSettle(MOTION_TUNING.releaseHoldMs);
         }
       }
 
@@ -2515,24 +2528,17 @@
       }
 
       async function prepareExperience() {
-        const prefetchFrames = USES_MOTION_PROXY
-          ? Array.from({ length: Math.floor(LAST_FRAME / MOTION_FRAME_STEP) + 1 },
-              (_, index) => index * MOTION_FRAME_STEP)
-          : [];
+        const prefetchFrames = Array.from(
+          { length: Math.floor(LAST_FRAME / MOTION_FRAME_STEP) + 1 },
+          (_, index) => index * MOTION_FRAME_STEP
+        );
         const bootstrapPrefetchFrames = prefetchFrames.slice(0, BOOTSTRAP_PREFETCH_COUNT);
         const deferredPrefetchFrames = prefetchFrames.slice(BOOTSTRAP_PREFETCH_COUNT);
         const initialFrames = [...new Set([
-          ...(USES_MOTION_PROXY
-            ? prefetchFrames.slice(0, INITIAL_DECODE_COUNT)
-            : Array.from({ length: INITIAL_DECODE_COUNT }, (_, index) => index)),
-          ...(USES_MOTION_PROXY ? [] : STATIONS.map((station) => station.hold))
+          ...prefetchFrames.slice(0, INITIAL_DECODE_COUNT),
+          ...STATIONS.map((station) => station.hold)
         ])];
-        const decodeRequests = USES_MOTION_PROXY
-          ? [
-              ...initialFrames.map((frame) => ({ frame, profile: MOTION_PROFILE })),
-              { frame: 0, profile: SETTLED_PROFILE }
-            ]
-          : initialFrames.map((frame) => ({ frame, profile: SETTLED_PROFILE }));
+        const decodeRequests = initialFrames.map((frame) => ({ frame, profile: MOTION_PROFILE }));
         const totalWork = Math.max(1, bootstrapPrefetchFrames.length + decodeRequests.length);
         let completed = 0;
         const updateLoadingProgress = () => {
@@ -2567,7 +2573,7 @@
         loadingFill.style.width = "100%";
         loadingValue.textContent = "100%";
         enterButton.disabled = false;
-        if (deferredPrefetchFrames.length) {
+        if (ALLOW_BACKGROUND_PREFETCH && deferredPrefetchFrames.length) {
           void prefetchAssets(deferredPrefetchFrames, MOTION_PROFILE, null,
             BACKGROUND_PREFETCH_CONCURRENCY);
         }
