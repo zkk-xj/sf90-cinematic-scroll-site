@@ -1318,6 +1318,23 @@
 
   <script>
     (() => {
+      if (new URLSearchParams(window.location.search).get("details") !== "1") return;
+      document.documentElement.classList.add("sf90-details-preview");
+
+      const stylesheet = document.createElement("link");
+      stylesheet.rel = "stylesheet";
+      stylesheet.href = "assets/detail-stops/detail-layer-v1.css";
+      document.head.appendChild(stylesheet);
+
+      const featureScript = document.createElement("script");
+      featureScript.src = "assets/detail-stops/detail-layer-v1.js";
+      featureScript.async = false;
+      document.body.appendChild(featureScript);
+    })();
+  </script>
+
+  <script>
+    (() => {
       "use strict";
 
       const FPS = 24;
@@ -1369,6 +1386,11 @@
       const SCRUB_CUT_OPACITY = MOTION_TUNING.cutOpacity;
       const SCRUB_CUT_FADE_MS = MOTION_TUNING.cutFadeMs;
       const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const DETAILS_ENABLED = new URLSearchParams(window.location.search).get("details") === "1";
+      const emitDetailEvent = (type, detail = {}) => {
+        if (!DETAILS_ENABLED) return;
+        window.dispatchEvent(new CustomEvent(`sf90:detail${type}`, { detail }));
+      };
       const STATIONS = [
         {
           id: "presence",
@@ -2151,6 +2173,7 @@
         void renderSettledMotionPreview(target, settleEpoch).catch((error) => {
           if (!isAbortError(error)) console.error(error);
         });
+        emitDetailEvent("settle", { frame: target, source: "scrub" });
       }
 
       function scheduleScrubSettle(delay = MOTION_TUNING.wheelIdleMs) {
@@ -2174,10 +2197,12 @@
         resetScrubForecastState();
         state.scrubEpoch += 1;
         cancelObsoleteScrubDecodes(-1, true, SETTLED_PROFILE);
+        emitDetailEvent("hide");
       }
 
       function scrubBy(frameDelta) {
         if (!state.entered || state.playing || !Number.isFinite(frameDelta)) return;
+        emitDetailEvent("hide");
         const now = performance.now();
         const startingScrub = !document.body.classList.contains("is-scrubbing");
         const inputDirection = Math.sign(frameDelta);
@@ -2367,6 +2392,7 @@
           await renderFrame(target, true);
           state.scrubFrame = target;
           settleStation(next);
+          emitDetailEvent("settle", { frame: target, source: "step" });
           return true;
         } catch (error) {
           console.error(error);
@@ -2397,6 +2423,7 @@
           await cutTo(targetFrame);
           state.scrubFrame = targetFrame;
           settleStation(destination);
+          emitDetailEvent("settle", { frame: targetFrame, source: "jump" });
           return true;
         } catch (error) {
           console.error(error);
@@ -2585,6 +2612,7 @@
         document.body.classList.add("is-entered");
         loadingScreen.classList.add("is-hidden");
         settleStation(0);
+        emitDetailEvent("settle", { frame: 0, source: "enter" });
         if (!USES_MOTION_PROXY) {
           void warmWindow(0, 1, WARM_RADIUS);
         }
@@ -2594,6 +2622,14 @@
         item.addEventListener("click", () => void jumpToStation(Number(item.dataset.target)));
       });
       soundToggle.addEventListener("click", toggleSound);
+      if (DETAILS_ENABLED) {
+        window.addEventListener("sf90:detailaudioenable", () => {
+          state.soundEnabled = true;
+          soundToggle.setAttribute("aria-pressed", "true");
+          soundToggle.textContent = "Sound on";
+          endAudio();
+        });
+      }
       replay.addEventListener("click", () => void restart());
       enterButton.addEventListener("click", enterExperience);
       window.addEventListener("wheel", handleWheel, { passive: false });
